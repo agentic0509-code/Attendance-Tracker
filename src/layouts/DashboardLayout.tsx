@@ -42,7 +42,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       case 'admin':
         return [
           { name: 'Admin Dashboard', path: '/admin', icon: LayoutDashboard },
-          { name: 'Departments', path: '/departments', icon: BookOpen },
+          { name: 'Data Upload', path: '/upload', icon: BookOpen },
           { name: 'Settings', path: '/settings', icon: Settings },
         ];
       case 'program_leader':

@@ -12,6 +12,8 @@ import { ProgramLeaderDashboard } from './pages/dashboards/ProgramLeaderDashboar
 import { FacultyDashboard } from './pages/dashboards/FacultyDashboard';
 import { StudentDashboard } from './pages/dashboards/StudentDashboard';
 import { ParentDashboard } from './pages/dashboards/ParentDashboard';
+import { DataUpload } from './pages/dashboards/DataUpload';
+
 
 // Create TanStack Query Client
 const queryClient = new QueryClient({
@@ -57,10 +59,10 @@ function App() {
               }
             />
             <Route
-              path="/departments"
+              path="/upload"
               element={
                 <DashboardLayout>
-                  <ComingSoon title="Departments" />
+                  <DataUpload />
                 </DashboardLayout>
               }
             />
