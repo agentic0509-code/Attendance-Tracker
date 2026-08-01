@@ -1,13 +1,33 @@
 import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import type { UserRole } from '../hooks/useAuth';
+
 
 interface ProtectedRouteProps {
   children?: React.ReactNode;
+  allowedRoles?: UserRole[];
 }
 
-export function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { isAuthenticated, loading } = useAuth();
+export const getDashboardPath = (role: UserRole | null): string => {
+  switch (role) {
+    case 'admin':
+      return '/admin';
+    case 'program_leader':
+      return '/pl';
+    case 'faculty':
+      return '/faculty';
+    case 'student':
+      return '/student';
+    case 'parent':
+      return '/parent';
+    default:
+      return '/login';
+  }
+};
+
+export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
+  const { isAuthenticated, role, loading } = useAuth();
 
   if (loading) {
     return (
@@ -25,6 +45,11 @@ export function ProtectedRoute({ children }: ProtectedRouteProps) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (allowedRoles && role && !allowedRoles.includes(role)) {
+    // Redirect authenticated users to their own dashboard if they don't have access to this route
+    return <Navigate to={getDashboardPath(role)} replace />;
   }
 
   return children ? <>{children}</> : <Outlet />;

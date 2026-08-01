@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
 import { useAuth } from '../hooks/useAuth';
+import type { UserRole } from '../hooks/useAuth';
+import { supabase } from '../lib/supabase';
+
 import {
   LayoutDashboard,
   Users,
@@ -12,9 +14,12 @@ import {
   Menu,
   X,
   Bell,
-  BookOpen
+  BookOpen,
+  ShieldCheck,
+  Award,
+  GraduationCap,
+  Sparkles
 } from 'lucide-react';
-
 
 interface DashboardLayoutProps {
   children?: React.ReactNode;
@@ -24,24 +29,103 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, role } = useAuth();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate('/login');
   };
 
-  const navItems = [
-    { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-    { name: 'Attendance', path: '/attendance', icon: CheckSquare },
-    { name: 'Students', path: '/students', icon: Users },
-    { name: 'Reports', path: '/reports', icon: FileBarChart },
-    { name: 'Settings', path: '/settings', icon: Settings },
-  ];
+  // Generate dynamic side nav links based on role
+  const getNavItems = (userRole: UserRole | null) => {
+    switch (userRole) {
+      case 'admin':
+        return [
+          { name: 'Admin Dashboard', path: '/admin', icon: LayoutDashboard },
+          { name: 'Departments', path: '/departments', icon: BookOpen },
+          { name: 'Settings', path: '/settings', icon: Settings },
+        ];
+      case 'program_leader':
+        return [
+          { name: 'PL Dashboard', path: '/pl', icon: LayoutDashboard },
+          { name: 'Batches', path: '/batches', icon: BookOpen },
+          { name: 'Settings', path: '/settings', icon: Settings },
+        ];
+      case 'faculty':
+        return [
+          { name: 'Faculty Dashboard', path: '/faculty', icon: LayoutDashboard },
+          { name: 'Take Attendance', path: '/attendance', icon: CheckSquare },
+          { name: 'Settings', path: '/settings', icon: Settings },
+        ];
+      case 'student':
+        return [
+          { name: 'Student Dashboard', path: '/student', icon: LayoutDashboard },
+          { name: 'My Attendance', path: '/my-attendance', icon: FileBarChart },
+          { name: 'Settings', path: '/settings', icon: Settings },
+        ];
+      case 'parent':
+        return [
+          { name: 'Parent Dashboard', path: '/parent', icon: LayoutDashboard },
+          { name: 'Settings', path: '/settings', icon: Settings },
+        ];
+      default:
+        return [
+          { name: 'Dashboard', path: '/', icon: LayoutDashboard },
+        ];
+    }
+  };
+
+  const navItems = getNavItems(role);
 
   const getPageTitle = () => {
     const currentItem = navItems.find((item) => item.path === location.pathname);
-    return currentItem ? currentItem.name : 'Dashboard';
+    return currentItem ? currentItem.name : 'Overview';
+  };
+
+  const getRoleBadge = (userRole: UserRole | null) => {
+    switch (userRole) {
+      case 'admin':
+        return (
+          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/25">
+            <ShieldCheck className="w-3 h-3" />
+            Admin
+          </span>
+        );
+      case 'program_leader':
+        return (
+          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/25">
+            <Award className="w-3 h-3" />
+            PL Leader
+          </span>
+        );
+      case 'faculty':
+        return (
+          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-500/10 text-indigo-400 border border-indigo-500/25">
+            <Users className="w-3 h-3" />
+            Faculty
+          </span>
+        );
+      case 'student':
+        return (
+          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/25">
+            <GraduationCap className="w-3 h-3" />
+            Student
+          </span>
+        );
+      case 'parent':
+        return (
+          <span className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-cyan-500/10 text-cyan-400 border border-cyan-500/25">
+            <Sparkles className="w-3 h-3" />
+            Parent
+          </span>
+        );
+      default:
+        return (
+          <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-slate-500/10 text-slate-400 border border-slate-500/25">
+            User
+          </span>
+        );
+    }
   };
 
   return (
@@ -79,15 +163,20 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           })}
         </nav>
 
-        {/* Sidebar Footer / User Profile info */}
+        {/* Sidebar Footer / User Profile Info */}
         <div className="p-4 border-t border-navy-800 bg-navy-950">
-          <div className="flex items-center gap-3 mb-4 px-2">
-            <div className="w-9 h-9 rounded-full bg-accent-500/10 border border-accent-500/20 flex items-center justify-center text-accent-400 font-bold text-sm">
-              {user?.email?.charAt(0).toUpperCase() || 'U'}
+          <div className="flex flex-col gap-2 mb-4 px-2">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-accent-500/10 border border-accent-500/20 flex items-center justify-center text-accent-400 font-bold text-sm">
+                {user?.email?.charAt(0).toUpperCase() || 'U'}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-white truncate capitalize">{role || 'User'}</p>
+                <p className="text-xs text-slate-500 truncate">{user?.email}</p>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-white truncate">Logged In</p>
-              <p className="text-xs text-slate-500 truncate">{user?.email}</p>
+            <div className="mt-1 flex justify-start">
+              {getRoleBadge(role)}
             </div>
           </div>
           <button
@@ -149,13 +238,18 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         </nav>
 
         <div className="p-4 border-t border-navy-800 bg-navy-950">
-          <div className="flex items-center gap-3 mb-4 px-2">
-            <div className="w-9 h-9 rounded-full bg-accent-500/10 border border-accent-500/20 flex items-center justify-center text-accent-400 font-bold text-sm">
-              {user?.email?.charAt(0).toUpperCase() || 'U'}
+          <div className="flex flex-col gap-2 mb-4 px-2">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-accent-500/10 border border-accent-500/20 flex items-center justify-center text-accent-400 font-bold text-sm">
+                {user?.email?.charAt(0).toUpperCase() || 'U'}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-white truncate capitalize">{role || 'User'}</p>
+                <p className="text-xs text-slate-500 truncate">{user?.email}</p>
+              </div>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-semibold text-white truncate">Logged In</p>
-              <p className="text-xs text-slate-500 truncate">{user?.email}</p>
+            <div className="mt-1 flex justify-start">
+              {getRoleBadge(role)}
             </div>
           </div>
           <button
@@ -192,20 +286,25 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             <div className="h-6 w-px bg-slate-200"></div>
 
             {/* Profile Dropdown Header */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-600 font-semibold text-xs border border-slate-200">
                 {user?.email?.charAt(0).toUpperCase() || 'U'}
               </div>
-              <span className="hidden sm:inline text-sm font-medium text-slate-600">
-                {user?.email?.split('@')[0]}
-              </span>
+              <div className="hidden sm:flex flex-col text-left">
+                <span className="text-sm font-semibold text-slate-700">
+                  {user?.email?.split('@')[0]}
+                </span>
+                <span className="text-[10px] text-slate-400 capitalize font-medium">
+                  {role || 'User'}
+                </span>
+              </div>
             </div>
           </div>
         </header>
 
         {/* Content Viewport */}
         <main className="flex-1 overflow-y-auto bg-slate-50 p-6">
-          <div className="max-w-7xl mx-auto animate-fade-in">
+          <div className="max-w-7xl mx-auto">
             {children}
           </div>
         </main>
