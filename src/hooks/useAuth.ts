@@ -10,39 +10,19 @@ export function useAuth() {
   const [role, setRole] = useState<UserRole | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const fetchRole = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .single();
-
-      if (error) {
-        throw error;
-      }
-      setRole(data?.role as UserRole ?? null);
-    } catch (err) {
-      console.error('Error fetching user role:', err);
-      setRole(null);
-    }
-  };
-
+  // 1. Listen for auth changes and set user/session synchronously
   useEffect(() => {
     let isMounted = true;
 
     // Get initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       if (!isMounted) return;
       setSession(session);
       setUser(session?.user ?? null);
-      
-      if (session?.user) {
-        await fetchRole(session.user.id);
-      } else {
+      if (!session) {
         setRole(null);
+        setLoading(false);
       }
-      setLoading(false);
     }).catch(() => {
       if (isMounted) {
         setLoading(false);
@@ -50,18 +30,14 @@ export function useAuth() {
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, currentSession) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
       if (!isMounted) return;
       setSession(currentSession);
       setUser(currentSession?.user ?? null);
-
-      if (currentSession?.user) {
-        setLoading(true);
-        await fetchRole(currentSession.user.id);
-      } else {
+      if (!currentSession) {
         setRole(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
     return () => {
@@ -69,6 +45,51 @@ export function useAuth() {
       subscription.unsubscribe();
     };
   }, []);
+
+  // 2. Fetch role reactively in a separate useEffect when user changes
+  useEffect(() => {
+    if (!user) {
+      setRole(null);
+      return;
+    }
+
+    const userId = user.id;
+    let isCurrent = true;
+    setLoading(true);
+
+    async function getProfileRole() {
+      try {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', userId)
+          .single();
+
+
+        if (!isCurrent) return;
+
+        if (error) {
+          throw error;
+        }
+        setRole(data?.role as UserRole ?? null);
+      } catch (err) {
+        console.error('Error fetching role in useEffect:', err);
+        if (isCurrent) {
+          setRole(null);
+        }
+      } finally {
+        if (isCurrent) {
+          setLoading(false);
+        }
+      }
+    }
+
+    getProfileRole();
+
+    return () => {
+      isCurrent = false;
+    };
+  }, [user?.id]);
 
   return {
     session,
