@@ -1,12 +1,12 @@
 import { useAuth } from '../hooks/useAuth';
 import {
   Users,
-  CheckCircle,
   Calendar,
   Percent,
   TrendingUp,
   Clock
 } from 'lucide-react';
+
 
 export function Dashboard() {
   const { user } = useAuth();

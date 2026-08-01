@@ -12,9 +12,9 @@ import {
   Menu,
   X,
   Bell,
-  User as UserIcon,
   BookOpen
 } from 'lucide-react';
+
 
 interface DashboardLayoutProps {
   children?: React.ReactNode;
