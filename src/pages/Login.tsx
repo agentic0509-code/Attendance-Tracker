@@ -12,7 +12,7 @@ export function Login() {
   const [isConfigured, setIsConfigured] = useState(true);
 
   const navigate = useNavigate();
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user, role, loading: authLoading } = useAuth();
 
   // If already authenticated, go directly to Dashboard
   useEffect(() => {
@@ -20,6 +20,7 @@ export function Login() {
       navigate('/');
     }
   }, [isAuthenticated, navigate]);
+
 
   // Check if Supabase keys are setup
   useEffect(() => {
@@ -88,7 +89,31 @@ export function Login() {
             </div>
           )}
 
+          {/* Missing profile banner */}
+          {!authLoading && user && !role && (
+            <div className="mb-6 p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl flex gap-3 text-amber-200 text-xs">
+              <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-400 font-bold" />
+              <div>
+                <strong className="font-semibold text-amber-300">Account Profile Missing:</strong>
+                <p className="mt-1 leading-normal text-slate-300">
+                  You are authenticated in Supabase as <strong className="text-white">{user.email}</strong>, but no profile details match this account in the database. Please run the migration script and create your profile.
+                </p>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    await supabase.auth.signOut();
+                    window.location.reload();
+                  }}
+                  className="mt-2.5 px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-xs font-semibold transition-colors shadow"
+                >
+                  Clear Session / Log Out
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Error Banner */}
+
           {errorMsg && (
             <div className="mb-6 p-4 bg-rose-500/10 border border-rose-500/30 rounded-xl flex gap-3 text-rose-200 text-xs animate-shake">
               <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-400" />
