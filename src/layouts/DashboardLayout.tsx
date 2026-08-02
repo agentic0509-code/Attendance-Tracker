@@ -49,7 +49,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       case 'program_leader':
         return [
           { name: 'PL Dashboard', path: '/pl', icon: LayoutDashboard },
-          { name: 'Batches', path: '/batches', icon: BookOpen },
+          { name: 'Timetables', path: '/pl/timetable', icon: BookOpen },
           { name: 'Settings', path: '/settings', icon: Settings },
         ];
       case 'faculty':

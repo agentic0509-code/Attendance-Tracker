@@ -15,6 +15,8 @@ import { FacultyDashboard } from './pages/dashboards/FacultyDashboard';
 import { StudentDashboard } from './pages/dashboards/StudentDashboard';
 import { ParentDashboard } from './pages/dashboards/ParentDashboard';
 import { DataUpload } from './pages/dashboards/DataUpload';
+import { PLTimetable } from './pages/dashboards/PLTimetable';
+import { TakeAttendance } from './pages/dashboards/TakeAttendance';
 
 
 // Create TanStack Query Client
@@ -82,10 +84,10 @@ function App() {
               }
             />
             <Route
-              path="/batches"
+              path="/pl/timetable"
               element={
                 <DashboardLayout>
-                  <ComingSoon title="Batches" />
+                  <PLTimetable />
                 </DashboardLayout>
               }
             />
@@ -105,7 +107,7 @@ function App() {
               path="/attendance"
               element={
                 <DashboardLayout>
-                  <ComingSoon title="Take Attendance" />
+                  <TakeAttendance />
                 </DashboardLayout>
               }
             />

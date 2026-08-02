@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
-import { User, Calendar, BookOpen, Percent, Link2Off } from 'lucide-react';
+import { User, Calendar, BookOpen, Percent, Link2Off, Loader2 } from 'lucide-react';
 
 interface StudentDetails {
+  id: string;
   name: string;
   roll_no: string;
   admission_no: string;
@@ -12,6 +13,7 @@ interface StudentDetails {
   personal_email: string | null;
   official_email: string | null;
   phone: string | null;
+  sectionId: string;
   sectionName: string;
   semester: number;
   batchYear: number;
@@ -21,96 +23,165 @@ interface StudentDetails {
 
 export function StudentDashboard() {
   const { user } = useAuth();
-  const [student, setStudent] = useState<StudentDetails | null>(null);
+  
   const [loading, setLoading] = useState(true);
+  const [student, setStudent] = useState<StudentDetails | null>(null);
+  
+  // Attendance metrics
+  const [attendance, setAttendance] = useState({ present: 0, total: 0, percentage: 0 });
+  
+  // Schedule grid
+  const [schedule, setSchedule] = useState<any[]>([]);
 
-  useEffect(() => {
-    async function fetchStudentDetails() {
-      if (!user) return;
-      setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('students')
-          .select(`
+  const loadStudentData = async () => {
+    if (!user) return;
+    setLoading(true);
+
+    try {
+      // 1. Fetch Student Profile
+      const { data, error } = await supabase
+        .from('students')
+        .select(`
+          id,
+          name,
+          roll_no,
+          admission_no,
+          dob,
+          gender,
+          personal_email,
+          official_email,
+          phone,
+          section_id,
+          sections (
             name,
-            roll_no,
-            admission_no,
-            dob,
-            gender,
-            personal_email,
-            official_email,
-            phone,
-            sections (
-              name,
-              batches (
-                admission_year,
-                current_semester,
-                departments (
-                  name,
-                  code
-                )
+            batches (
+              admission_year,
+              current_semester,
+              departments (
+                name,
+                code
               )
             )
+          )
+        `)
+        .eq('profile_id', user.id)
+        .maybeSingle();
+
+      if (error) throw error;
+
+      if (data) {
+        const sectionData = data.sections as any;
+        const batchData = sectionData?.batches;
+        const deptData = batchData?.departments;
+
+        const details: StudentDetails = {
+          id: data.id,
+          name: data.name,
+          roll_no: data.roll_no,
+          admission_no: data.admission_no,
+          dob: data.dob,
+          gender: data.gender,
+          personal_email: data.personal_email,
+          official_email: data.official_email,
+          phone: data.phone,
+          sectionId: data.section_id,
+          sectionName: sectionData?.name ?? 'N/A',
+          semester: batchData?.current_semester ?? 0,
+          batchYear: batchData?.admission_year ?? 0,
+          deptName: deptData?.name ?? 'N/A',
+          deptCode: deptData?.code ?? 'N/A'
+        };
+        setStudent(details);
+
+        // 2. Fetch Attendance Records (excluding suspended classes)
+        const { data: attendanceList } = await supabase
+          .from('attendance')
+          .select(`
+            status,
+            sessions (
+              status
+            )
           `)
-          .eq('profile_id', user.id)
-          .maybeSingle();
+          .eq('student_id', data.id);
 
-        if (error) throw error;
+        let present = 0;
+        let total = 0;
 
-        if (data) {
-          const sectionData = data.sections as any;
-          const batchData = sectionData?.batches;
-          const deptData = batchData?.departments;
+        attendanceList?.forEach((att: any) => {
+          const session = att.sessions;
+          // Only evaluate completed (not cancelled/suspended) classes
+          if (session && session.status === 'completed') {
+            total++;
+            if (att.status === 'present') present++;
+          }
+        });
 
-          setStudent({
-            name: data.name,
-            roll_no: data.roll_no,
-            admission_no: data.admission_no,
-            dob: data.dob,
-            gender: data.gender,
-            personal_email: data.personal_email,
-            official_email: data.official_email,
-            phone: data.phone,
-            sectionName: sectionData?.name ?? 'N/A',
-            semester: batchData?.current_semester ?? 0,
-            batchYear: batchData?.admission_year ?? 0,
-            deptName: deptData?.name ?? 'N/A',
-            deptCode: deptData?.code ?? 'N/A'
-          });
-        }
-      } catch (err) {
-        console.error('Error fetching student details:', err);
-      } finally {
-        setLoading(false);
+        setAttendance({
+          present,
+          total,
+          percentage: total > 0 ? parseFloat(((present / total) * 100).toFixed(1)) : 0
+        });
+
+        // 3. Fetch Timetable Schedule slots for this section
+        const { data: timetableSlots } = await supabase
+          .from('timetable')
+          .select(`
+            day_of_week,
+            period_number,
+            course_offerings (
+              courses (code, name),
+              faculty (name)
+            )
+          `)
+          .eq('section_id', data.section_id);
+
+        setSchedule(timetableSlots || []);
       }
+    } catch (err) {
+      console.error('Error fetching student details:', err);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    fetchStudentDetails();
+  useEffect(() => {
+    loadStudentData();
   }, [user]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <Loader2 className="w-8 h-8 text-accent-600 animate-spin" />
+      </div>
+    );
+  }
+
+  const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+  const periods = [1, 2, 3, 4, 5, 6, 7, 8];
+
+  const getGridCell = (day: string, period: number) => {
+    return schedule.find(s => s.day_of_week === day && s.period_number === period);
+  };
 
   return (
     <div className="space-y-6">
-      <div className="bg-gradient-to-r from-navy-800 to-navy-700 rounded-2xl p-6 md:p-8 text-white shadow-lg">
+      {/* Header Banner */}
+      <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl p-6 md:p-8 text-white shadow-lg">
         <h2 className="text-2xl font-black tracking-tight text-white mb-2">Student Dashboard</h2>
-        <p className="text-slate-200 text-sm max-w-2xl">
+        <p className="text-slate-300 text-sm max-w-2xl">
           Track your classes, monitor cumulative attendance scores, check warnings, and view profile records.
         </p>
       </div>
 
-      {loading ? (
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm animate-pulse space-y-4">
-          <div className="h-6 bg-slate-200 rounded w-1/4"></div>
-          <div className="h-4 bg-slate-200 rounded w-1/2"></div>
-        </div>
-      ) : student ? (
+      {student ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Profile Card */}
           <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-            <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
-              <User className="w-5 h-5 text-accent-500" />
-              Student Profile
+            <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2 border-b border-slate-100 pb-3">
+              <User className="w-4 h-4 text-accent-500" />
+              Academic Profile
             </h3>
-            <div className="border-t border-slate-100 pt-4 space-y-3">
+            <div className="space-y-4">
               <div>
                 <span className="text-xs text-slate-400">Name</span>
                 <p className="text-sm font-semibold text-slate-800">{student.name}</p>
@@ -160,26 +231,34 @@ export function StudentDashboard() {
               <div className="flex justify-between items-start">
                 <div>
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Attendance Percentage</span>
-                  <p className="text-3xl font-black text-slate-800 mt-2">0%</p>
+                  <p className="text-3xl font-black text-slate-800 mt-2">{attendance.percentage}%</p>
                 </div>
-                <div className="p-3 bg-rose-50 border border-rose-100 text-rose-500 rounded-xl">
+                <div className={`p-3 rounded-xl border ${attendance.percentage >= 75 ? 'bg-emerald-50 border-emerald-100 text-emerald-500' : 'bg-rose-50 border-rose-100 text-rose-500'}`}>
                   <Percent className="w-5 h-5" />
                 </div>
               </div>
-              <p className="text-xs text-slate-400 mt-4">No attendance sessions recorded yet.</p>
+              <p className="text-xs text-slate-400 mt-4">
+                {attendance.percentage >= 75 
+                  ? 'Attendance status safe. Keep attending regularly.' 
+                  : 'Warning: Attendance is below 75% requirements.'}
+              </p>
             </div>
 
             <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
               <div className="flex justify-between items-start">
                 <div>
                   <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Classes Attended</span>
-                  <p className="text-3xl font-black text-slate-800 mt-2">0 / 0</p>
+                  <p className="text-3xl font-black text-slate-800 mt-2">
+                    {attendance.present} / {attendance.total}
+                  </p>
                 </div>
-                <div className="p-3 bg-emerald-50 border border-emerald-100 text-emerald-500 rounded-xl">
+                <div className="p-3 bg-indigo-50 border border-indigo-100 text-indigo-500 rounded-xl">
                   <Calendar className="w-5 h-5" />
                 </div>
               </div>
-              <p className="text-xs text-slate-400 mt-4">No active rosters available.</p>
+              <p className="text-xs text-slate-400 mt-4">
+                Refers to total completed, non-suspended academic periods.
+              </p>
             </div>
           </div>
         </div>
@@ -203,15 +282,55 @@ export function StudentDashboard() {
       )}
 
       {student && (
-        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm">
-          <h3 className="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+        <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
+          <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-accent-500" />
-            Class Schedule
+            Class Schedule ({student.sectionName})
           </h3>
-          <div className="flex flex-col items-center justify-center p-8 border border-dashed border-slate-200 rounded-xl text-center text-slate-400">
-            <p className="text-sm font-semibold text-slate-600">No scheduled sessions</p>
-            <p className="text-xs mt-1">Once faculty initiates roll calls for your section, they will appear here in real-time.</p>
-          </div>
+          
+          {schedule.length === 0 ? (
+            <div className="flex flex-col items-center justify-center p-8 border border-dashed border-slate-200 rounded-xl text-center text-slate-400">
+              <p className="text-sm font-semibold text-slate-600">No scheduled sessions</p>
+              <p className="text-xs mt-1">Once faculty initiates roll calls for your section, they will appear here in real-time.</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto border border-slate-100 rounded-xl">
+              <table className="min-w-full divide-y divide-slate-100 text-xs text-left">
+                <thead className="bg-slate-50 text-[10px] uppercase font-bold text-slate-400 tracking-wider">
+                  <tr>
+                    <th className="px-4 py-3 border-r border-slate-100">Day</th>
+                    {periods.map(p => (
+                      <th key={p} className="px-4 py-3 text-center">Period {p}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 bg-white">
+                  {weekdays.map(day => (
+                    <tr key={day} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-4 font-bold text-slate-700 bg-slate-50/40 border-r border-slate-100">{day}</td>
+                      {periods.map(period => {
+                        const slot = getGridCell(day, period);
+                        const offering = slot?.course_offerings;
+                        return (
+                          <td key={period} className="px-4 py-4 text-center min-w-[130px] border-r border-slate-50">
+                            {slot && offering ? (
+                              <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-150 space-y-1">
+                                <p className="font-extrabold text-slate-700 text-[11px]">{offering.courses?.code}</p>
+                                <p className="text-[10px] text-slate-500 font-semibold truncate" title={offering.courses?.name}>{offering.courses?.name}</p>
+                                <p className="text-[9px] text-slate-400 font-medium">{offering.faculty?.name}</p>
+                              </div>
+                            ) : (
+                              <span className="text-[10px] text-slate-350 italic">-</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
