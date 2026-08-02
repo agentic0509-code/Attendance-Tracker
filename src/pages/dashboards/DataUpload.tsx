@@ -506,7 +506,7 @@ export function DataUpload() {
             email: getVal('email') || null,
             phone: getVal('phone') || null
           };
-          const { error } = await supabase.from('faculty').insert(payload);
+          const { error } = await supabase.from('faculty').upsert(payload, { onConflict: 'employee_code' });
           dbError = error;
         } 
         else if (selectedEntity === 'students') {
