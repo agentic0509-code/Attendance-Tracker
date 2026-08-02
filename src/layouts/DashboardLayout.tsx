@@ -16,6 +16,7 @@ import {
   Bell,
   BookOpen,
   ShieldCheck,
+  ShieldAlert,
   Award,
   GraduationCap,
   Sparkles
@@ -29,7 +30,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, role } = useAuth();
+  const { user, role, passwordChanged } = useAuth();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -305,6 +306,22 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         {/* Content Viewport */}
         <main className="flex-1 overflow-y-auto bg-slate-50 p-6">
           <div className="max-w-7xl mx-auto">
+            {!passwordChanged && (
+              <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-2xl flex items-center justify-between text-xs text-amber-800 shadow-sm shrink-0">
+                <div className="flex items-center gap-3">
+                  <ShieldAlert className="w-5 h-5 text-amber-500 flex-shrink-0" />
+                  <div>
+                    <strong className="font-bold">Security Notice:</strong> You are currently using the default password for your account. We highly recommend updating it for safety.
+                  </div>
+                </div>
+                <Link
+                  to="/settings"
+                  className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-semibold transition-colors flex items-center gap-1 shadow-sm shrink-0 ml-4"
+                >
+                  Change Password
+                </Link>
+              </div>
+            )}
             {children}
           </div>
         </main>

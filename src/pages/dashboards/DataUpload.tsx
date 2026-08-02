@@ -502,7 +502,9 @@ export function DataUpload() {
           payload = {
             employee_code: getVal('employee_code'),
             name: getVal('name'),
-            department_id: deptId
+            department_id: deptId,
+            email: getVal('email') || null,
+            phone: getVal('phone') || null
           };
           const { error } = await supabase.from('faculty').insert(payload);
           dbError = error;

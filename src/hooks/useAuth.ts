@@ -8,6 +8,7 @@ export function useAuth() {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [role, setRole] = useState<UserRole | null>(null);
+  const [passwordChanged, setPasswordChanged] = useState<boolean>(true);
   const [loading, setLoading] = useState(true);
 
   // 1. Listen for auth changes and set user/session synchronously
@@ -61,7 +62,7 @@ export function useAuth() {
       try {
         const { data, error } = await supabase
           .from('profiles')
-          .select('role')
+          .select('role, password_changed')
           .eq('id', userId)
           .single();
 
@@ -72,6 +73,7 @@ export function useAuth() {
           throw error;
         }
         setRole(data?.role as UserRole ?? null);
+        setPasswordChanged(data?.password_changed ?? true);
       } catch (err) {
         console.error('Error fetching role in useEffect:', err);
         if (isCurrent) {
@@ -95,6 +97,7 @@ export function useAuth() {
     session,
     user,
     role,
+    passwordChanged,
     loading,
     isAuthenticated: !!user && !!role,
   };

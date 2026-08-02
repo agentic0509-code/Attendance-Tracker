@@ -1,9 +1,11 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Login } from './pages/Login';
+import { ResetPassword } from './pages/ResetPassword';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { DashboardLayout } from './layouts/DashboardLayout';
 import { ComingSoon } from './pages/ComingSoon';
+import { Settings } from './pages/Settings';
 import { RootRedirect } from './components/RootRedirect';
 
 // Dashboard imports
@@ -32,6 +34,7 @@ function App() {
         <Routes>
           {/* Public Route */}
           <Route path="/login" element={<Login />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
 
           {/* Root Redirect handler (Protected) */}
           <Route element={<ProtectedRoute />}>
@@ -42,7 +45,7 @@ function App() {
               path="/settings"
               element={
                 <DashboardLayout>
-                  <ComingSoon title="Settings" />
+                  <Settings />
                 </DashboardLayout>
               }
             />
