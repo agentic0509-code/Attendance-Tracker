@@ -124,7 +124,7 @@ export function DataUpload() {
     batches: ['department_code', 'admission_year', 'current_semester'],
     sections: ['department_code', 'admission_year', 'section_name'],
     faculty: ['employee_code', 'name', 'email', 'department_code', 'phone', 'role'],
-    students: ['roll_no', 'enrollment_no', 'name', 'section_name', 'personal_email', 'dob', 'gender', 'phone'],
+    students: ['roll_no', 'admission_no', 'name', 'section_name', 'personal_email', 'official_email', 'dob', 'gender', 'phone'],
     courses: ['code', 'name', 'credits', 'course_type', 'semester_number', 'department_code'],
     course_offerings: ['course_code', 'section_name', 'faculty_code', 'term_name'],
     enrollments: ['student roll number', 'course_code', 'section_name', 'term_name'],
@@ -299,13 +299,14 @@ export function DataUpload() {
         } 
         else if (selectedEntity === 'students') {
           const roll = getVal('roll_no');
-          const enroll = getVal('enrollment_no');
+          const admission = getVal('admission_no');
           const name = getVal('name');
           const sec = getVal('section_name');
+          const officialMail = getVal('official_email');
 
-          if (!roll || !enroll || !name || !sec) {
+          if (!roll || !admission || !name || !sec || !officialMail) {
             isValid = false;
-            reason = 'Missing roll_no, enrollment_no, name, or section_name';
+            reason = 'Missing roll_no, admission_no, name, section_name, or official_email';
           } else if (!secMap.has(sec.toLowerCase())) {
             isValid = false;
             reason = `Section '${sec}' not found`;
@@ -510,12 +511,13 @@ export function DataUpload() {
           const secId = secMap.get(getVal('section_name').toLowerCase());
           payload = {
             roll_no: getVal('roll_no'),
-            enrollment_no: getVal('enrollment_no'),
+            admission_no: getVal('admission_no'),
             name: getVal('name'),
             section_id: secId,
             dob: getVal('dob') || null,
             gender: getVal('gender') || null,
             personal_email: getVal('personal_email') || null,
+            official_email: getVal('official_email') || null,
             phone: getVal('phone') || null
           };
           const { error } = await supabase.from('students').insert(payload);

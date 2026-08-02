@@ -6,10 +6,11 @@ import { User, Calendar, BookOpen, Percent, Link2Off } from 'lucide-react';
 interface StudentDetails {
   name: string;
   roll_no: string;
-  enrollment_no: string;
+  admission_no: string;
   dob: string | null;
   gender: string | null;
   personal_email: string | null;
+  official_email: string | null;
   phone: string | null;
   sectionName: string;
   semester: number;
@@ -33,10 +34,11 @@ export function StudentDashboard() {
           .select(`
             name,
             roll_no,
-            enrollment_no,
+            admission_no,
             dob,
             gender,
             personal_email,
+            official_email,
             phone,
             sections (
               name,
@@ -63,10 +65,11 @@ export function StudentDashboard() {
           setStudent({
             name: data.name,
             roll_no: data.roll_no,
-            enrollment_no: data.enrollment_no,
+            admission_no: data.admission_no,
             dob: data.dob,
             gender: data.gender,
             personal_email: data.personal_email,
+            official_email: data.official_email,
             phone: data.phone,
             sectionName: sectionData?.name ?? 'N/A',
             semester: batchData?.current_semester ?? 0,
@@ -118,13 +121,23 @@ export function StudentDashboard() {
                   <p className="text-sm font-mono font-semibold text-slate-800">{student.roll_no}</p>
                 </div>
                 <div>
-                  <span className="text-xs text-slate-400">Enrollment No</span>
-                  <p className="text-sm font-mono font-semibold text-slate-800">{student.enrollment_no}</p>
+                  <span className="text-xs text-slate-400">Admission No</span>
+                  <p className="text-sm font-mono font-semibold text-slate-800">{student.admission_no}</p>
                 </div>
               </div>
               <div>
                 <span className="text-xs text-slate-400">Department</span>
                 <p className="text-sm font-semibold text-slate-800">{student.deptName} ({student.deptCode})</p>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-xs text-slate-400">Official Email</span>
+                  <p className="text-sm font-semibold text-slate-800 truncate" title={student.official_email || ''}>{student.official_email || 'N/A'}</p>
+                </div>
+                <div>
+                  <span className="text-xs text-slate-400">Personal Email</span>
+                  <p className="text-sm font-semibold text-slate-800 truncate" title={student.personal_email || ''}>{student.personal_email || 'N/A'}</p>
+                </div>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
