@@ -197,7 +197,7 @@ export function AdminDashboard() {
         {/* System Provisioning Panel */}
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm flex flex-col justify-between">
           <div>
-            <h3 className="text-base font-bold text-slate-800 mb-2">User Accounts Provisioning</h3>
+            <h3 className="text-base font-bold text-slate-800 mb-2">User Accounts</h3>
             <p className="text-xs text-slate-400 mb-4">
               Auto-generate auth logins and profiles for all newly uploaded faculty and students.
             </p>
