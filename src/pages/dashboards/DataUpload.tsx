@@ -127,7 +127,7 @@ export function DataUpload() {
     students: ['roll_no', 'admission_no', 'name', 'section_name', 'personal_email', 'official_email', 'dob', 'gender', 'phone'],
     courses: ['code', 'name', 'credits', 'course_type', 'semester_number', 'department_code'],
     course_offerings: ['course_code', 'section_name', 'faculty_code', 'term_name'],
-    enrollments: ['student roll number', 'course_code', 'section_name', 'term_name'],
+    enrollments: ['student roll number', 'course code', 'section name', 'term name'],
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, entity: EntityType) => {
@@ -359,13 +359,13 @@ export function DataUpload() {
         } 
         else if (selectedEntity === 'enrollments') {
           const roll = getVal('student roll number');
-          const cCode = getVal('course_code');
-          const sec = getVal('section_name');
-          const tName = getVal('term_name');
+          const cCode = getVal('course code');
+          const sec = getVal('section name');
+          const tName = getVal('term name');
 
           if (!roll || !cCode || !sec || !tName) {
             isValid = false;
-            reason = 'Missing student roll number, course_code, section_name, or term_name';
+            reason = 'Missing student roll number, course code, section name, or term name';
           } else {
             const studId = studMap.get(roll.toLowerCase());
             const courseId = courseMap.get(cCode.toLowerCase());
@@ -553,9 +553,9 @@ export function DataUpload() {
         } 
         else if (selectedEntity === 'enrollments') {
           const studId = studMap.get(getVal('student roll number').toLowerCase());
-          const courseId = courseMap.get(getVal('course_code').toLowerCase());
-          const secId = secMap.get(getVal('section_name').toLowerCase());
-          const termId = termMap.get(getVal('term_name').toLowerCase());
+          const courseId = courseMap.get(getVal('course code').toLowerCase());
+          const secId = secMap.get(getVal('section name').toLowerCase());
+          const termId = termMap.get(getVal('term name').toLowerCase());
           const offeringId = offeringMap.get(`${courseId}_${secId}_${termId}`);
 
           payload = {
