@@ -50,6 +50,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
         return [
           { name: 'PL Dashboard', path: '/pl', icon: LayoutDashboard },
           { name: 'Timetables', path: '/pl/timetable', icon: BookOpen },
+          { name: 'Take Attendance', path: '/attendance', icon: CheckSquare },
           { name: 'Settings', path: '/settings', icon: Settings },
         ];
       case 'faculty':

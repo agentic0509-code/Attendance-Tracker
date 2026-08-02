@@ -80,59 +80,66 @@ export function PLTimetable() {
     if (!user) return;
     setLoading(true);
     try {
-      // 1. Fetch PL Department assignment
-      const { data: plData, error: plErr } = await supabase
-        .from('program_leaders')
-        .select('department_id, departments(name, code)')
-        .eq('profile_id', user.id)
-        .maybeSingle();
-
-      if (plErr) throw plErr;
-      
-      if (!plData) {
-        setPlDept(null);
-        setLoading(false);
-        return;
-      }
-
-      const dept = plData.departments as any;
-      setPlDept({
-        department_id: plData.department_id,
-        name: dept?.name || '',
-        code: dept?.code || ''
-      });
-
-      // 2. Fetch Active Term
+      // 1. Fetch Active Term
       const { data: termData } = await supabase
         .from('terms')
         .select('id, name')
         .eq('is_active', true)
         .maybeSingle();
 
+      if (!termData) {
+        setPlDept(null);
+        setLoading(false);
+        return;
+      }
       setActiveTerm(termData);
 
-      // 3. Fetch Batches & Sections for PL Department
-      const { data: batches } = await supabase
-        .from('batches')
-        .select('id')
-        .eq('department_id', plData.department_id);
+      // 2. Fetch logged-in user's Faculty Row
+      const { data: myFaculty } = await supabase
+        .from('faculty')
+        .select(`
+          id,
+          name,
+          department_id,
+          departments (name, code)
+        `)
+        .eq('profile_id', user.id)
+        .maybeSingle();
 
-      const batchIds = batches?.map(b => b.id) || [];
-      if (batchIds.length > 0) {
-        const { data: secData } = await supabase
-          .from('sections')
-          .select('id, name')
-          .in('batch_id', batchIds)
-          .order('name');
-        
-        setSections(secData || []);
-        if (secData && secData.length > 0) {
-          setSelectedSectionGrid(secData[0].name);
-        }
+      if (!myFaculty) {
+        setPlDept(null);
+        setLoading(false);
+        return;
       }
 
-      // 4. Fetch Course Offerings for Department
-      if (termData) {
+      // Populate plDept (resolved via faculty -> department link)
+      const dept = myFaculty.departments as any;
+      setPlDept({
+        department_id: myFaculty.department_id,
+        name: dept?.name || '',
+        code: dept?.code || ''
+      });
+
+      // 3. Fetch program leader assigned sections
+      const { data: assignments } = await supabase
+        .from('program_leader_sections')
+        .select(`
+          section_id,
+          sections (id, name)
+        `)
+        .eq('faculty_id', myFaculty.id)
+        .eq('term_id', termData.id);
+
+      const sectionList = assignments?.map((a: any) => a.sections).filter(Boolean) || [];
+      setSections(sectionList);
+      
+      if (sectionList.length > 0) {
+        setSelectedSectionGrid(sectionList[0].name);
+      }
+
+      // 4. Fetch Course Offerings for these assigned sections
+      const sectionIds = sectionList.map(s => s.id);
+      if (sectionIds.length > 0) {
         const { data: offeringsData } = await supabase
           .from('course_offerings')
           .select(`
@@ -144,15 +151,18 @@ export function PLTimetable() {
             faculty_id,
             faculty (name, employee_code)
           `)
-          .eq('term_id', termData.id);
+          .eq('term_id', termData.id)
+          .in('section_id', sectionIds);
 
-        // Filter offerings belonging to PL's department
-        const filtered = offeringsData?.filter((o: any) => o.courses?.department_id === plData.department_id) || [];
-        setOfferings(filtered);
+        setOfferings(offeringsData || []);
+        
+        // 5. Fetch Saved Timetable Grid for these sections
+        await fetchTimetable(sectionIds);
+      } else {
+        setOfferings([]);
+        setTimetableSlots([]);
       }
 
-      // 5. Fetch Saved Timetable Grid
-      await fetchTimetable(batchIds);
     } catch (err: any) {
       console.error('Error loading PL initial details:', err);
     } finally {
@@ -160,16 +170,9 @@ export function PLTimetable() {
     }
   };
 
-  const fetchTimetable = async (batchIds: string[]) => {
-    if (batchIds.length === 0) return;
+  const fetchTimetable = async (sectionIds: string[]) => {
+    if (sectionIds.length === 0) return;
     try {
-      const { data: secData } = await supabase
-        .from('sections')
-        .select('id')
-        .in('batch_id', batchIds);
-
-      const sectionIds = secData?.map(s => s.id) || [];
-      if (sectionIds.length === 0) return;
 
       const { data: slots, error } = await supabase
         .from('timetable')
@@ -429,9 +432,8 @@ export function PLTimetable() {
       setDraftRows([]);
       
       // Reload stats
-      const { data: batches } = await supabase.from('batches').select('id').eq('department_id', plDept?.department_id);
-      const batchIds = batches?.map(b => b.id) || [];
-      await fetchTimetable(batchIds);
+      const sectionIds = sections.map(s => s.id);
+      await fetchTimetable(sectionIds);
     } catch (err: any) {
       setValidationErrors([err.message || 'Error occurred while saving timetable slots.']);
     } finally {

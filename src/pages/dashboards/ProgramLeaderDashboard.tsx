@@ -61,69 +61,82 @@ export function ProgramLeaderDashboard() {
     setErrorMsg(null);
 
     try {
-      // 1. Fetch PL Department Details
-      const { data: plData, error: plErr } = await supabase
-        .from('program_leaders')
-        .select('department_id, departments(name, code)')
-        .eq('profile_id', user.id)
+      // 1. Fetch Active Term
+      const { data: termData } = await supabase
+        .from('terms')
+        .select('id, name')
+        .eq('is_active', true)
         .maybeSingle();
 
-      if (plErr) throw plErr;
-
-      if (!plData) {
+      if (!termData) {
         setPlDept(null);
         setLoading(false);
         return;
       }
 
-      const dept = plData.departments as any;
+      // 2. Fetch logged-in user's Faculty Row
+      const { data: facRow, error: facErr } = await supabase
+        .from('faculty')
+        .select(`
+          id,
+          name,
+          department_id,
+          departments (name, code)
+        `)
+        .eq('profile_id', user.id)
+        .maybeSingle();
+
+      if (facErr) throw facErr;
+      if (!facRow) {
+        setPlDept(null);
+        setLoading(false);
+        return;
+      }
+
+      // Populate plDept (resolved via faculty -> department link)
+      const dept = facRow.departments as any;
       setPlDept({
-        department_id: plData.department_id,
+        department_id: facRow.department_id,
         name: dept?.name || '',
         code: dept?.code || ''
       });
 
-      // 2. Fetch scoped stats (Batches, Sections, Students in this PL's department)
-      const { data: batches } = await supabase
-        .from('batches')
-        .select('id')
-        .eq('department_id', plData.department_id);
+      // 3. Fetch program leader assigned sections
+      const { data: assignments } = await supabase
+        .from('program_leader_sections')
+        .select(`
+          section_id,
+          sections (id, name, batch_id, batches(admission_year))
+        `)
+        .eq('faculty_id', facRow.id)
+        .eq('term_id', termData.id);
 
-      const batchIds = batches?.map(b => b.id) || [];
-      
-      let sectionData: any[] = [];
-      let studentCount = 0;
-
-      if (batchIds.length > 0) {
-        const { data: secData } = await supabase
-          .from('sections')
-          .select('id, name')
-          .in('batch_id', batchIds);
-
-        sectionData = secData || [];
-
-        const sectionIds = sectionData.map(s => s.id);
-        if (sectionIds.length > 0) {
-          const { count } = await supabase
-            .from('students')
-            .select('*', { count: 'exact', head: true })
-            .in('section_id', sectionIds);
-          studentCount = count ?? 0;
-        }
+      const sectionList = assignments?.map((a: any) => a.sections).filter(Boolean) || [];
+      setSections(sectionList);
+      if (sectionList.length > 0) {
+        setSelectedSuspSectionId(sectionList[0].id);
       }
 
-      setSections(sectionData);
-      if (sectionData.length > 0) {
-        setSelectedSuspSectionId(sectionData[0].id);
+      // 4. Scoped stats
+      const uniqueBatchIds = Array.from(new Set(sectionList.map((s: any) => s.batch_id)));
+      const sectionIds = sectionList.map((s: any) => s.id);
+      
+      let studentCount = 0;
+      if (sectionIds.length > 0) {
+        const { count } = await supabase
+          .from('students')
+          .select('*', { count: 'exact', head: true })
+          .in('section_id', sectionIds);
+        studentCount = count ?? 0;
       }
 
       setStats({
-        batches: batchIds.length,
-        sections: sectionData.length,
+        batches: uniqueBatchIds.length,
+        sections: sectionList.length,
         students: studentCount
       });
 
-      // 3. Fetch All Faculty list for substitutions
+      // 5. Fetch All Faculty list for substitutions
       const { data: facultyData } = await supabase
         .from('faculty')
         .select('id, name, employee_code, profile_id')
@@ -131,14 +144,13 @@ export function ProgramLeaderDashboard() {
       
       setAllFaculty(facultyData || []);
       if (facultyData && facultyData.length > 0) {
-        // Set first faculty profile_id (must have login profile linked)
         const firstWithProfile = facultyData.find(f => f.profile_id);
         setSelectedFacultyProfileId(firstWithProfile?.profile_id || '');
       }
 
-      // 4. Load scheduled classes for substitutions & suspensions based on default date
-      await loadSubstitutionSlots(subDate, batchIds);
-      await loadSuspensionSlots(suspDate, batchIds);
+      // 6. Load scheduled classes for substitutions & suspensions based on default date
+      await loadSubstitutionSlots(subDate, sectionIds);
+      await loadSuspensionSlots(suspDate, sectionIds);
 
     } catch (err: any) {
       setErrorMsg(err.message || 'Error occurred while fetching program metrics.');
@@ -147,27 +159,28 @@ export function ProgramLeaderDashboard() {
     }
   };
 
-  const loadSubstitutionSlots = async (dateStr: string, batchIds?: string[]) => {
+  const loadSubstitutionSlots = async (dateStr: string, explicitSectionIds?: string[]) => {
     if (!plDept) return;
     try {
-      let bIds = batchIds;
-      if (!bIds) {
-        const { data: batches } = await supabase
-          .from('batches')
-          .select('id')
-          .eq('department_id', plDept.department_id);
-        bIds = batches?.map(b => b.id) || [];
+      let sectionIds = explicitSectionIds;
+      if (!sectionIds) {
+        const { data: activeTerm } = await supabase.from('terms').select('id').eq('is_active', true).maybeSingle();
+        const { data: facRow } = await supabase.from('faculty').select('id').eq('profile_id', user?.id).maybeSingle();
+        if (activeTerm && facRow) {
+          const { data: assignments } = await supabase
+            .from('program_leader_sections')
+            .select('section_id')
+            .eq('faculty_id', facRow.id)
+            .eq('term_id', activeTerm.id);
+          sectionIds = assignments?.map(a => a.section_id) || [];
+        }
       }
 
-      if (bIds.length === 0) return;
-
-      const { data: secData } = await supabase
-        .from('sections')
-        .select('id')
-        .in('batch_id', bIds);
-
-      const sectionIds = secData?.map(s => s.id) || [];
-      if (sectionIds.length === 0) return;
+      if (!sectionIds || sectionIds.length === 0) {
+        setSubSlots([]);
+        setSelectedSlotId('');
+        return;
+      }
 
       const dayName = getDayName(dateStr);
 
@@ -199,27 +212,28 @@ export function ProgramLeaderDashboard() {
     }
   };
 
-  const loadSuspensionSlots = async (dateStr: string, batchIds?: string[]) => {
+  const loadSuspensionSlots = async (dateStr: string, explicitSectionIds?: string[]) => {
     if (!plDept) return;
     try {
-      let bIds = batchIds;
-      if (!bIds) {
-        const { data: batches } = await supabase
-          .from('batches')
-          .select('id')
-          .eq('department_id', plDept.department_id);
-        bIds = batches?.map(b => b.id) || [];
+      let sectionIds = explicitSectionIds;
+      if (!sectionIds) {
+        const { data: activeTerm } = await supabase.from('terms').select('id').eq('is_active', true).maybeSingle();
+        const { data: facRow } = await supabase.from('faculty').select('id').eq('profile_id', user?.id).maybeSingle();
+        if (activeTerm && facRow) {
+          const { data: assignments } = await supabase
+            .from('program_leader_sections')
+            .select('section_id')
+            .eq('faculty_id', facRow.id)
+            .eq('term_id', activeTerm.id);
+          sectionIds = assignments?.map(a => a.section_id) || [];
+        }
       }
 
-      if (bIds.length === 0) return;
-
-      const { data: secData } = await supabase
-        .from('sections')
-        .select('id')
-        .in('batch_id', bIds);
-
-      const sectionIds = secData?.map(s => s.id) || [];
-      if (sectionIds.length === 0) return;
+      if (!sectionIds || sectionIds.length === 0) {
+        setSuspSlots([]);
+        setSelectedSuspSlotId('');
+        return;
+      }
 
       const dayName = getDayName(dateStr);
 

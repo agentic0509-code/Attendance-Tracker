@@ -94,7 +94,7 @@ function App() {
           </Route>
 
           {/* Faculty Protected Routes */}
-          <Route element={<ProtectedRoute allowedRoles={['faculty']} />}>
+          <Route element={<ProtectedRoute allowedRoles={['faculty', 'program_leader']} />}>
             <Route
               path="/faculty"
               element={
