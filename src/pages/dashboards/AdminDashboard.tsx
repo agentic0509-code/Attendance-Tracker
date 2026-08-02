@@ -36,6 +36,7 @@ export function AdminDashboard() {
     skippedRows: Array<{ type: 'faculty' | 'student'; identifier: string; name: string; reason: string }>;
   } | null>(null);
   const [showModal, setShowModal] = useState(false);
+  const [provisionProgress, setProvisionProgress] = useState<string | null>(null);
 
   const fetchStats = async () => {
     setLoading(true);
@@ -81,18 +82,57 @@ export function AdminDashboard() {
 
   const handleProvisionLogins = async () => {
     setProvisioning(true);
+    setProvisionProgress("Initializing provisioning...");
     setProvisionResult(null);
+
+    let offset = 0;
+    const limit = 50;
+    let accumulatedCreated = 0;
+    let accumulatedAlreadyExisting = 0;
+    let accumulatedSkipped = 0;
+    const accumulatedSkippedRows: any[] = [];
+
     try {
-      const { data, error } = await supabase.functions.invoke('provision-accounts');
-      if (error) throw error;
-      setProvisionResult(data);
+      while (true) {
+        setProvisionProgress(`Batch starting at offset ${offset}...`);
+        const { data, error } = await supabase.functions.invoke('provision-accounts', {
+          body: { limit, offset }
+        });
+
+        if (error) throw error;
+        if (!data) throw new Error("No data returned from Edge Function");
+
+        accumulatedCreated += data.createdCount || 0;
+        accumulatedAlreadyExisting += data.alreadyExistingCount || 0;
+        accumulatedSkipped += data.skippedCount || 0;
+        if (data.skippedRows) {
+          accumulatedSkippedRows.push(...data.skippedRows);
+        }
+
+        const total = data.totalCount || 0;
+        const currentProcessed = offset + (data.processedCount || 0);
+        setProvisionProgress(`Provisioned ${currentProcessed} / ${total}...`);
+
+        if (data.remainingCount === 0 || (data.processedCount || 0) === 0) {
+          break;
+        }
+
+        offset += (data.processedCount || 0);
+      }
+
+      setProvisionResult({
+        created: accumulatedCreated,
+        alreadyExisting: accumulatedAlreadyExisting,
+        skippedNoEmail: accumulatedSkipped,
+        skippedRows: accumulatedSkippedRows
+      });
       setShowModal(true);
-      // Refresh stats in case profile counts change or counts are updated
       await fetchStats();
     } catch (err: any) {
       alert(`Provisioning failed: ${err.message || err.error_description || 'Unknown error'}`);
     } finally {
       setProvisioning(false);
+      setProvisionProgress(null);
     }
   };
 
@@ -222,7 +262,7 @@ export function AdminDashboard() {
               {provisioning ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                  Provisioning Logins...
+                  {provisionProgress || "Provisioning Logins..."}
                 </>
               ) : (
                 <>

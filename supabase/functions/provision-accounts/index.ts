@@ -21,6 +21,17 @@ serve(async (req) => {
       });
     }
 
+    // Read body parameters for limit and offset
+    let limit = 50;
+    let offset = 0;
+    try {
+      const body = await req.json();
+      if (typeof body.limit === 'number') limit = body.limit;
+      if (typeof body.offset === 'number') offset = body.offset;
+    } catch (_) {
+      // Body may be empty, fallback to defaults
+    }
+
     const token = authHeader.replace('Bearer ', '');
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -49,7 +60,7 @@ serve(async (req) => {
       });
     }
 
-    // 3. Fetch all existing Auth users to create a map of email -> id (removes getUserByEmail calls)
+    // 3. Fetch all existing Auth users to create a mapping of email -> id
     const authUserMap = new Map<string, string>();
     let page = 1;
     while (true) {
@@ -67,140 +78,142 @@ serve(async (req) => {
       page++;
     }
 
-    // 4. Fetch unprovisioned faculty
-    const { data: unprovisionedFaculty, error: facErr } = await supabaseAdmin
+    // 4. Fetch all Faculty
+    const { data: facultyList, error: facErr } = await supabaseAdmin
       .from('faculty')
-      .select('id, employee_code, name, email')
-      .is('profile_id', null);
+      .select('id, employee_code, name, email, profile_id');
 
     if (facErr) throw facErr;
 
-    // 5. Fetch unprovisioned students
-    const { data: unprovisionedStudents, error: studErr } = await supabaseAdmin
+    // 5. Fetch all Students
+    const { data: studentsList, error: studErr } = await supabaseAdmin
       .from('students')
-      .select('id, roll_no, name, official_email')
-      .is('profile_id', null);
+      .select('id, roll_no, name, official_email, profile_id');
 
     if (studErr) throw studErr;
 
-    let created = 0;
-    let skippedNoEmail = 0;
-    let alreadyExisting = 0;
+    // 6. Combine records with a stable sort order
+    const allRecords = [
+      ...(facultyList || []).map(f => ({
+        id: f.id,
+        identifier: f.employee_code,
+        name: f.name,
+        email: f.email,
+        profile_id: f.profile_id,
+        role: 'faculty' as const,
+        tableName: 'faculty' as const
+      })),
+      ...(studentsList || []).map(s => ({
+        id: s.id,
+        identifier: s.roll_no,
+        name: s.name,
+        email: s.official_email,
+        profile_id: s.profile_id,
+        role: 'student' as const,
+        tableName: 'students' as const
+      }))
+    ];
+
+    // Sort by id for stable pagination slicing
+    allRecords.sort((a, b) => a.id.localeCompare(b.id));
+
+    // Slice based on requested batch parameters
+    const batch = allRecords.slice(offset, offset + limit);
+
+    let createdCount = 0;
+    let skippedCount = 0;
+    let alreadyExistingCount = 0;
     const skippedRows: Array<{ type: 'faculty' | 'student'; identifier: string; name: string; reason: string }> = [];
 
-    // Helper to provision a single user account
-    const provisionUser = async (
-      email: string,
-      name: string,
-      role: 'faculty' | 'student',
-      identifier: string,
-      recordId: string,
-      tableName: 'faculty' | 'students'
-    ) => {
+    // 7. Process slice batch
+    for (const record of batch) {
+      // If record is already linked to a profile in the DB, it is already existing
+      if (record.profile_id) {
+        alreadyExistingCount++;
+        continue;
+      }
+
+      const email = record.email?.trim();
+      const name = record.name;
+      const role = record.role;
+      const identifier = record.identifier;
+
+      if (!email) {
+        skippedCount++;
+        skippedRows.push({ type: role, identifier, name, reason: 'Email is empty/blank' });
+        continue;
+      }
+
       const normalizedEmail = email.toLowerCase().trim();
       let userId: string | null = null;
 
-      // Check if user already exists in our pre-fetched auth mapping
-      if (authUserMap.has(normalizedEmail)) {
-        userId = authUserMap.get(normalizedEmail)!;
-        alreadyExisting++;
-      } else {
-        // Attempt to create auth user
-        const { data: authUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-          email: normalizedEmail,
-          password: 'abes@1234',
-          email_confirm: true,
-          user_metadata: { role, identifier }
-        });
-
-        if (createErr) {
-          // If error indicates user/email already exists, handle gracefully
-          const errMsg = createErr.message.toLowerCase();
-          if (errMsg.includes('already exists') || errMsg.includes('already registered') || errMsg.includes('conflict')) {
-            // Find existing user ID by re-querying list or checking database profile
-            const { data: profileCheck } = await supabaseAdmin
-              .from('profiles')
-              .select('id')
-              .eq('email', normalizedEmail)
-              .maybeSingle();
-
-            if (profileCheck?.id) {
-              userId = profileCheck.id;
-            }
-            alreadyExisting++;
-          } else {
-            skippedRows.push({ type: role, identifier, name, reason: createErr.message });
-            return;
-          }
+      try {
+        if (authUserMap.has(normalizedEmail)) {
+          userId = authUserMap.get(normalizedEmail)!;
+          alreadyExistingCount++;
         } else {
-          userId = authUser.user.id;
-          created++;
-        }
-      }
+          // Attempt to create auth user
+          const { data: authUser, error: createErr } = await supabaseAdmin.auth.admin.createUser({
+            email: normalizedEmail,
+            password: 'abes@1234',
+            email_confirm: true,
+            user_metadata: { role, identifier }
+          });
 
-      if (userId) {
-        // Upsert Profile
-        await supabaseAdmin.from('profiles').upsert({
-          id: userId,
-          full_name: name,
-          email: normalizedEmail,
-          role,
-          password_changed: false
-        });
+          if (createErr) {
+            const errMsg = createErr.message.toLowerCase();
+            if (errMsg.includes('already exists') || errMsg.includes('already registered') || errMsg.includes('conflict')) {
+              const { data: profileCheck } = await supabaseAdmin
+                .from('profiles')
+                .select('id')
+                .eq('email', normalizedEmail)
+                .maybeSingle();
 
-        // Link Roster table profile_id
-        await supabaseAdmin.from(tableName).update({ profile_id: userId }).eq('id', recordId);
-      }
-    };
-
-    // 6. Process Faculty
-    if (unprovisionedFaculty) {
-      for (const fac of unprovisionedFaculty) {
-        const email = fac.email?.trim();
-        const identifier = fac.employee_code;
-        const name = fac.name;
-
-        if (!email) {
-          skippedNoEmail++;
-          skippedRows.push({ type: 'faculty', identifier, name, reason: 'Email is empty/blank' });
-          continue;
-        }
-
-        try {
-          await provisionUser(email, name, 'faculty', identifier, fac.id, 'faculty');
-        } catch (err: any) {
-          skippedRows.push({ type: 'faculty', identifier, name, reason: err.message || 'Unknown error' });
-        }
-      }
-    }
-
-    // 7. Process Students
-    if (unprovisionedStudents) {
-      for (const stud of unprovisionedStudents) {
-        const email = stud.official_email?.trim();
-        const identifier = stud.roll_no;
-        const name = stud.name;
-
-        if (!email) {
-          skippedNoEmail++;
-          skippedRows.push({ type: 'student', identifier, name, reason: 'Official email is empty/blank' });
-          continue;
+              if (profileCheck?.id) {
+                userId = profileCheck.id;
+              }
+              alreadyExistingCount++;
+            } else {
+              skippedCount++;
+              skippedRows.push({ type: role, identifier, name, reason: createErr.message });
+              continue;
+            }
+          } else {
+            userId = authUser.user.id;
+            createdCount++;
+          }
         }
 
-        try {
-          await provisionUser(email, name, 'student', identifier, stud.id, 'students');
-        } catch (err: any) {
-          skippedRows.push({ type: 'student', identifier, name, reason: err.message || 'Unknown error' });
+        if (userId) {
+          // Upsert Profile
+          await supabaseAdmin.from('profiles').upsert({
+            id: userId,
+            full_name: name,
+            email: normalizedEmail,
+            role,
+            password_changed: false
+          });
+
+          // Link Roster table profile_id
+          await supabaseAdmin.from(record.tableName).update({ profile_id: userId }).eq('id', record.id);
         }
+      } catch (err: any) {
+        skippedCount++;
+        skippedRows.push({ type: role, identifier, name, reason: err.message || 'Unknown error' });
       }
     }
+
+    const remainingCount = Math.max(0, allRecords.length - (offset + batch.length));
 
     return new Response(
       JSON.stringify({
-        created,
-        skippedNoEmail,
-        alreadyExisting,
+        processedCount: batch.length,
+        createdCount,
+        alreadyExistingCount,
+        skippedCount,
+        remainingCount,
         skippedRows,
+        totalCount: allRecords.length
       }),
       {
         status: 200,
