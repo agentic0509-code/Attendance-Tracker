@@ -113,12 +113,12 @@ export function FacultyDashboard() {
                 course_id,
                 section_id,
                 group_label,
+                faculty_id,
                 sections (name),
-                courses!inner (code, name),
-                faculty!inner (profile_id)
+                courses!inner (code, name)
               )
             `)
-            .eq('course_offerings.faculty.profile_id', user.id)
+            .eq('course_offerings.faculty_id', data.id)
             .eq('day_of_week', dayName)
             .eq('week_start_date', weekMonday);
 
@@ -126,6 +126,8 @@ export function FacultyDashboard() {
             console.error('QUERY FAILED', ttError.message, ttError.details, ttError.hint, ttError.code);
             throw ttError;
           }
+
+          console.log('Number of timetable rows returned:', slots?.length || 0);
 
           // Fetch session overrides
           const { data: dateSessions, error: sessError } = await supabase

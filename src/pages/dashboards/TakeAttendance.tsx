@@ -124,11 +124,10 @@ export function TakeAttendance() {
             group_label,
             faculty_id,
             sections (name),
-            courses!inner (code, name),
-            faculty!inner (id, name, profile_id)
+            courses!inner (code, name)
           )
         `)
-        .eq('course_offerings.faculty.profile_id', user.id)
+        .eq('course_offerings.faculty_id', facRow.id)
         .eq('day_of_week', dayName)
         .eq('week_start_date', weekMonday);
 
@@ -136,6 +135,8 @@ export function TakeAttendance() {
         console.error('QUERY FAILED', ttError.message, ttError.details, ttError.hint, ttError.code);
         throw ttError;
       }
+
+      console.log('Number of timetable rows returned:', timetableSlots?.length || 0);
 
       // Filter slots where this faculty teaches, OR check if they are substitute on this date
       const matchedSlots: ClassSlot[] = [];
