@@ -124,19 +124,16 @@ export function TakeAttendance() {
             group_label,
             faculty_id,
             sections (name),
-            courses!inner (code, name)
+            courses!inner (code, name),
+            faculty!inner (id, name, profile_id)
           )
         `)
-        .eq('course_offerings.faculty_id', facRow.id)
+        .eq('course_offerings.faculty.profile_id', user.id)
         .eq('day_of_week', dayName)
         .eq('week_start_date', weekMonday);
 
       if (ttError) {
-        console.error('Timetable query error:', {
-          message: ttError.message,
-          details: ttError.details,
-          hint: ttError.hint
-        });
+        console.error('QUERY FAILED', ttError.message, ttError.details, ttError.hint, ttError.code);
         throw ttError;
       }
 
@@ -146,21 +143,17 @@ export function TakeAttendance() {
       // 4. Fetch all sessions recorded for this date (substitutions or suspensions)
       const { data: dateSessions, error: sessError } = await supabase
         .from('sessions')
-        .select('id, course_offering_id, period_no, status, marked_by, substitute_for')
+        .select('id, course_offering_id, period_number, status, marked_by, substitute_for_id')
         .eq('session_date', selectedDate);
 
       if (sessError) {
-        console.error('Sessions query error:', {
-          message: sessError.message,
-          details: sessError.details,
-          hint: sessError.hint
-        });
+        console.error('QUERY FAILED', sessError.message, sessError.details, sessError.hint, sessError.code);
         throw sessError;
       }
 
       const sessionMap = new Map<string, any>();
       dateSessions?.forEach(s => {
-        sessionMap.set(`${s.course_offering_id}_${s.period_no}`, s);
+        sessionMap.set(`${s.course_offering_id}_${s.period_number}`, s);
       });
 
       // Map timetabled slots
@@ -185,7 +178,7 @@ export function TakeAttendance() {
           timetabled_faculty_id: offering.faculty_id,
           status: override ? override.status : 'pending',
           session_id: override?.id,
-          isSubstitute: !!(override && override.substitute_for && override.marked_by === user.id)
+          isSubstitute: !!(override && override.substitute_for_id && override.marked_by === user.id)
         });
       });
 
@@ -193,7 +186,7 @@ export function TakeAttendance() {
       dateSessions?.forEach(s => {
         if (s.marked_by === user.id) {
           // If not already mapped in matchedSlots
-          const alreadyMapped = matchedSlots.some(m => m.offering_id === s.course_offering_id && m.period_number === s.period_no);
+          const alreadyMapped = matchedSlots.some(m => m.offering_id === s.course_offering_id && m.period_number === s.period_number);
           if (!alreadyMapped) {
             // Find course offering details
             const offeringDetails = offerings_cache.find(o => o.id === s.course_offering_id);
@@ -207,7 +200,7 @@ export function TakeAttendance() {
                 course_name: offeringDetails.courses?.name || '',
                 section_id: offeringDetails.section_id,
                 section_name: secName,
-                period_number: s.period_no,
+                period_number: s.period_number,
                 timetabled_faculty_name: offeringDetails.faculty?.name || '',
                 timetabled_faculty_id: offeringDetails.faculty_id,
                 status: s.status,

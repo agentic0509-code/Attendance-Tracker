@@ -113,42 +113,34 @@ export function FacultyDashboard() {
                 course_id,
                 section_id,
                 group_label,
-                faculty_id,
                 sections (name),
-                courses!inner (code, name)
+                courses!inner (code, name),
+                faculty!inner (profile_id)
               )
             `)
-            .eq('course_offerings.faculty_id', data.id)
+            .eq('course_offerings.faculty.profile_id', user.id)
             .eq('day_of_week', dayName)
             .eq('week_start_date', weekMonday);
 
           if (ttError) {
-            console.error('Timetable query error:', {
-              message: ttError.message,
-              details: ttError.details,
-              hint: ttError.hint
-            });
+            console.error('QUERY FAILED', ttError.message, ttError.details, ttError.hint, ttError.code);
             throw ttError;
           }
 
           // Fetch session overrides
           const { data: dateSessions, error: sessError } = await supabase
             .from('sessions')
-            .select('course_offering_id, period_no, status')
+            .select('course_offering_id, period_number, status')
             .eq('session_date', todayDate);
 
           if (sessError) {
-            console.error('Sessions query error:', {
-              message: sessError.message,
-              details: sessError.details,
-              hint: sessError.hint
-            });
+            console.error('QUERY FAILED', sessError.message, sessError.details, sessError.hint, sessError.code);
             throw sessError;
           }
 
           const sessionMap = new Map<string, string>();
           dateSessions?.forEach(s => {
-            sessionMap.set(`${s.course_offering_id}_${s.period_no}`, s.status);
+            sessionMap.set(`${s.course_offering_id}_${s.period_number}`, s.status);
           });
 
           const mapped = (slots || []).map((s: any) => {
