@@ -116,7 +116,7 @@ export function TakeAttendance() {
       const { data: dateSessions } = await supabase
         .from('sessions')
         .select('id, course_offering_id, period_number, status, marked_by, substitute_for_id')
-        .eq('date', selectedDate);
+        .eq('session_date', selectedDate);
 
       const sessionMap = new Map<string, any>();
       dateSessions?.forEach(s => {
@@ -265,7 +265,7 @@ export function TakeAttendance() {
       // 1. Upsert session entry
       const payload: any = {
         course_offering_id: activeClass.offering_id,
-        date: selectedDate,
+        session_date: selectedDate,
         period_number: activeClass.period_number,
         status: 'completed',
         marked_by: user.id
@@ -277,7 +277,7 @@ export function TakeAttendance() {
 
       const { data: session, error: sessErr } = await supabase
         .from('sessions')
-        .upsert(payload, { onConflict: 'course_offering_id, date, period_number' })
+        .upsert(payload, { onConflict: 'course_offering_id, session_date, period_number' })
         .select('id')
         .single();
 

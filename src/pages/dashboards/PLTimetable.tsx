@@ -18,6 +18,8 @@ interface DraftRow {
   courseCode: string;
   dayOfWeek: string;
   periodNumber: number;
+  groupLabel?: string;
+  offeringId?: string;
 }
 
 interface TimetableSlot {
@@ -112,7 +114,7 @@ export function PLTimetable() {
         setSelectedSectionGrid(sectionList[0].name);
       }
 
-      // 4. Fetch Course Offerings for these assigned sections
+      // 4. Fetch Course Offerings for these assigned sections + term electives
       const sectionIds = sectionList.map(s => s.id);
       if (sectionIds.length > 0) {
         const { data: offeringsData } = await supabase
@@ -124,12 +126,16 @@ export function PLTimetable() {
             section_id,
             sections (name),
             faculty_id,
-            faculty (name, employee_code)
+            faculty (name, employee_code),
+            group_label
           `)
-          .eq('term_id', termData.id)
-          .in('section_id', sectionIds);
+          .eq('term_id', termData.id);
 
-        setOfferings(offeringsData || []);
+        const filteredOfferings = (offeringsData || []).filter(o => 
+          (o.section_id && sectionIds.includes(o.section_id)) || 
+          (!o.section_id && o.group_label)
+        );
+        setOfferings(filteredOfferings);
         
         // 5. Fetch Saved Timetable Grid for these sections
         await fetchTimetable(sectionIds);
@@ -158,26 +164,101 @@ export function PLTimetable() {
             section_id,
             sections (name),
             courses (code, name),
-            faculty (name)
+            faculty (name),
+            group_label
           )
         `);
 
       if (error) throw error;
 
-      const filtered = (slots || []).filter((s: any) => s.course_offerings && sectionIds.includes(s.course_offerings.section_id));
+      // Fetch student enrollments for these sections to map elective slots
+      const { data: sectionStudentEnrolls } = await supabase
+        .from('enrollments')
+        .select(`
+          course_offering_id,
+          students!inner (
+            section_id
+          )
+        `)
+        .in('students.section_id', sectionIds);
 
-      const mapped: TimetableSlot[] = filtered.map((s: any) => ({
-        day_of_week: s.day_of_week,
-        period_number: s.period_no,
-        section_name: s.course_offerings?.sections?.name || 'N/A',
-        course_code: s.course_offerings?.courses?.code || 'N/A',
-        course_name: s.course_offerings?.courses?.name || 'N/A',
-        faculty_name: s.course_offerings?.faculty?.name || 'N/A'
-      }));
+      const mapped: TimetableSlot[] = [];
+
+      (slots || []).forEach((s: any) => {
+        const offering = s.course_offerings;
+        if (!offering) return;
+
+        if (offering.section_id) {
+          if (sectionIds.includes(offering.section_id)) {
+            mapped.push({
+              day_of_week: s.day_of_week,
+              period_number: s.period_no,
+              section_name: offering.sections?.name || 'N/A',
+              course_code: offering.courses?.code || 'N/A',
+              course_name: offering.group_label 
+                ? `${offering.courses?.name} (${offering.group_label})`
+                : (offering.courses?.name || 'N/A'),
+              faculty_name: offering.faculty?.name || 'N/A'
+            });
+          }
+        } else if (offering.group_label) {
+          // Find which sections have student enrollments in this elective
+          const sectionsWithEnrollments = Array.from(new Set(
+            (sectionStudentEnrolls || [])
+              .filter((e: any) => e.course_offering_id === s.course_offering_id)
+              .map((e: any) => {
+                const sec = sections.find(secObj => secObj.id === e.students?.section_id);
+                return sec?.name;
+              })
+              .filter(Boolean)
+          ));
+
+          sectionsWithEnrollments.forEach((secName: any) => {
+            mapped.push({
+              day_of_week: s.day_of_week,
+              period_number: s.period_no,
+              section_name: secName,
+              course_code: offering.courses?.code || 'N/A',
+              course_name: `${offering.courses?.name} (${offering.group_label})`,
+              faculty_name: offering.faculty?.name || 'N/A'
+            });
+          });
+        }
+      });
 
       setTimetableSlots(mapped);
     } catch (err) {
       console.error('Error fetching timetable slots:', err);
+    }
+  };
+
+  const handleDeleteSlot = async (slot: TimetableSlot) => {
+    if (!window.confirm(`Are you sure you want to delete the scheduled slot for ${slot.course_code} on ${slot.day_of_week} at Period ${slot.period_number}?`)) {
+      return;
+    }
+    try {
+      // Find course offering
+      const offering = offerings.find(
+        o => o.courses.code.toLowerCase() === slot.course_code.toLowerCase() &&
+             (o.sections?.name.toLowerCase() === slot.section_name.toLowerCase() ||
+              o.group_label?.toLowerCase() === slot.section_name.toLowerCase())
+      );
+      if (!offering) throw new Error('No matching offering found for deletion.');
+
+      const { error } = await supabase
+        .from('timetable')
+        .delete()
+        .eq('course_offering_id', offering.id)
+        .eq('day_of_week', slot.day_of_week)
+        .eq('period_no', slot.period_number);
+
+      if (error) throw error;
+
+      // Reload
+      const sectionIds = sections.map(s => s.id);
+      await fetchTimetable(sectionIds);
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete slot.');
     }
   };
 
@@ -256,7 +337,7 @@ export function PLTimetable() {
         }
 
         const headers = Object.keys(rows[0]).map(h => h.trim().toLowerCase());
-        const requiredHeaders = ['section_name', 'course_code', 'day', 'period', 'term_name'];
+        const requiredHeaders = ['section_name', 'course_code', 'group_label', 'day', 'period', 'term_name'];
         const missing = requiredHeaders.filter(h => !headers.includes(h));
         if (missing.length > 0) {
           throw new Error(`Missing required headers: ${missing.join(', ')}`);
@@ -271,6 +352,7 @@ export function PLTimetable() {
           return {
             sectionName: getVal('section_name'),
             courseCode: getVal('course_code'),
+            groupLabel: getVal('group_label'),
             dayOfWeek: getVal('day'),
             periodNumber: parseInt(getVal('period')) || 1
           };
@@ -390,15 +472,32 @@ export function PLTimetable() {
 
   // Add empty manual row
   const addDraftRow = () => {
+    const defaultOffering = offerings[0];
     setDraftRows([
       ...draftRows,
       {
-        sectionName: sections[0]?.name || '',
-        courseCode: offerings[0]?.courses?.code || '',
+        offeringId: defaultOffering?.id || '',
+        sectionName: defaultOffering?.sections?.name || '',
+        courseCode: defaultOffering?.courses?.code || '',
+        groupLabel: defaultOffering?.group_label || '',
         dayOfWeek: 'Monday',
         periodNumber: 1
       }
     ]);
+  };
+
+  const handleSelectOfferingForDraft = (index: number, offeringId: string) => {
+    const o = offerings.find(x => x.id === offeringId);
+    if (!o) return;
+    const updated = [...draftRows];
+    updated[index] = {
+      ...updated[index],
+      offeringId: o.id,
+      courseCode: o.courses.code,
+      sectionName: o.sections?.name || '',
+      groupLabel: o.group_label || ''
+    };
+    setDraftRows(updated);
   };
 
   // Delete draft row
@@ -428,33 +527,58 @@ export function PLTimetable() {
       const errors: string[] = [];
       const resolvedSlots: Array<{
         course_offering_id: string;
-        section_id: string;
+        section_id: string | null;
         day_of_week: string;
         period_no: number;
       }> = [];
-
-      // Create maps for quick checks
-      const sectionNameMap = new Map(sections.map(s => [s.name.toLowerCase(), s.id]));
 
       // Outer loop to resolve row-by-row
       for (let i = 0; i < draftRows.length; i++) {
         const row = draftRows[i];
         const rowNum = i + 1;
 
-        const secId = sectionNameMap.get(row.sectionName.toLowerCase());
-        if (!secId) {
-          errors.push(`Row ${rowNum}: Section '${row.sectionName}' not found in your department.`);
-          continue;
+        const rowSecName = (row.sectionName || '').trim();
+        const rowCourseCode = (row.courseCode || '').trim().toLowerCase();
+        const rowGroupLabel = (row.groupLabel || '').trim();
+
+        let offering = null;
+        let secId = null;
+
+        if (!rowGroupLabel) {
+          // rule 1: if group_label is blank -> the offering with that section_name and NO group_label
+          const sec = sections.find(s => s.name.toLowerCase() === rowSecName.toLowerCase());
+          if (sec) {
+            secId = sec.id;
+            offering = offerings.find(
+              o => o.courses.code.toLowerCase() === rowCourseCode &&
+                   o.section_id === sec.id &&
+                   !o.group_label
+            );
+          }
+        } else if (rowGroupLabel && rowSecName) {
+          // rule 2: if group_label is set + section_name present -> offering with that section AND that group_label (labs)
+          const sec = sections.find(s => s.name.toLowerCase() === rowSecName.toLowerCase());
+          if (sec) {
+            secId = sec.id;
+            offering = offerings.find(
+              o => o.courses.code.toLowerCase() === rowCourseCode &&
+                   o.section_id === sec.id &&
+                   o.group_label &&
+                   o.group_label.toLowerCase() === rowGroupLabel.toLowerCase()
+            );
+          }
+        } else if (rowGroupLabel && !rowSecName) {
+          // rule 3: if group_label is set + section_name blank -> offering with that group_label and null section (electives)
+          offering = offerings.find(
+            o => o.courses.code.toLowerCase() === rowCourseCode &&
+                 !o.section_id &&
+                 o.group_label &&
+                 o.group_label.toLowerCase() === rowGroupLabel.toLowerCase()
+          );
         }
 
-        // Find course offering for this course code, section, and active term
-        const offering = offerings.find(
-          o => o.courses.code.toLowerCase() === row.courseCode.toLowerCase() &&
-               o.sections.name.toLowerCase() === row.sectionName.toLowerCase()
-        );
-
         if (!offering) {
-          errors.push(`Row ${rowNum}: No active Course Offering found for Course '${row.courseCode}' in Section '${row.sectionName}'.`);
+          errors.push(`Row ${rowNum}: No matching Course Offering found for Course '${row.courseCode}', Section '${row.sectionName || '(None)'}', Group '${row.groupLabel || '(None)'}'.`);
           continue;
         }
 
@@ -476,9 +600,9 @@ export function PLTimetable() {
       const seen = new Set<string>();
       for (let i = 0; i < resolvedSlots.length; i++) {
         const s = resolvedSlots[i];
-        const key = `${s.section_id}_${s.day_of_week}_${s.period_no}`;
+        const key = `${s.section_id || 'elective'}_${s.day_of_week}_${s.period_no}`;
         if (seen.has(key)) {
-          errors.push(`Row ${i + 1}: Multiple classes scheduled for section on ${s.day_of_week} at Period ${s.period_no}.`);
+          errors.push(`Row ${i + 1}: Multiple classes scheduled for ${s.section_id ? 'section' : 'elective group'} on ${s.day_of_week} at Period ${s.period_no}.`);
         }
         seen.add(key);
       }
@@ -490,18 +614,27 @@ export function PLTimetable() {
       }
 
       // Write to DB: Delete existing timetable slots for the affected sections and write fresh
-      const affectedSectionIds = Array.from(new Set(resolvedSlots.map(s => s.section_id)));
-      if (affectedSectionIds.length > 0) {
-        const affectedOfferings = offerings.filter(o => affectedSectionIds.includes(o.section_id));
-        const offeringIds = affectedOfferings.map(o => o.id);
-        if (offeringIds.length > 0) {
-          const { error: delError } = await supabase
-            .from('timetable')
-            .delete()
-            .in('course_offering_id', offeringIds);
+      const affectedSectionIds = Array.from(new Set(resolvedSlots.map(s => s.section_id).filter(Boolean)));
+      const deleteOfferingIds = new Set<string>();
 
-          if (delError) throw delError;
-        }
+      if (affectedSectionIds.length > 0) {
+        offerings
+          .filter(o => o.section_id && affectedSectionIds.includes(o.section_id))
+          .forEach(o => deleteOfferingIds.add(o.id));
+      }
+
+      resolvedSlots
+        .filter(s => !s.section_id)
+        .forEach(s => deleteOfferingIds.add(s.course_offering_id));
+
+      const deleteOfferingIdsArray = Array.from(deleteOfferingIds);
+      if (deleteOfferingIdsArray.length > 0) {
+        const { error: delError } = await supabase
+          .from('timetable')
+          .delete()
+          .in('course_offering_id', deleteOfferingIdsArray);
+
+        if (delError) throw delError;
       }
 
       // Insert fresh slots mapping to columns
@@ -514,7 +647,7 @@ export function PLTimetable() {
       const { error: insError } = await supabase.from('timetable').insert(insertPayload);
       if (insError) throw insError;
 
-      setSaveSuccess(`Successfully updated academic timetables for ${affectedSectionIds.length} sections.`);
+      setSaveSuccess(`Successfully updated academic timetables.`);
       setDraftRows([]);
       
       // Reload stats
@@ -623,8 +756,15 @@ export function PLTimetable() {
                       const slot = getGridCell(day, period);
                       return (
                         <td key={period} className="px-4 py-4 text-center min-w-[130px] border-r border-slate-50">
-                          {slot ? (
-                            <div className="p-2.5 rounded-xl bg-accent-50/50 border border-accent-100/50 space-y-1">
+                           {slot ? (
+                            <div className="p-2.5 rounded-xl bg-accent-50/50 border border-accent-100/50 space-y-1 relative group">
+                              <button
+                                onClick={() => handleDeleteSlot(slot)}
+                                className="absolute -top-1.5 -right-1.5 p-1 rounded-full bg-rose-55 hover:bg-rose-100 border border-rose-200 text-rose-500 hover:text-rose-700 opacity-0 group-hover:opacity-100 transition-opacity duration-150 shadow"
+                                title="Delete Slot"
+                              >
+                                <Trash className="w-2.5 h-2.5" />
+                              </button>
                               <p className="font-extrabold text-accent-700 text-[11px]">{slot.course_code}</p>
                               <p className="text-[10px] text-slate-500 font-semibold truncate" title={slot.course_name}>{slot.course_name}</p>
                               <p className="text-[9px] text-slate-400 font-medium">{slot.faculty_name}</p>
@@ -738,11 +878,10 @@ export function PLTimetable() {
                 <table className="min-w-full divide-y divide-slate-100 text-left text-xs">
                   <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase sticky top-0 border-b border-slate-100">
                     <tr>
-                      <th className="px-3 py-2">Section</th>
-                      <th className="px-3 py-2">Course Code</th>
-                      <th className="px-3 py-2">Day</th>
-                      <th className="px-3 py-2">Period</th>
-                      <th className="px-3 py-2 text-center">Action</th>
+                      <th className="px-3 py-2">Class Offering</th>
+                      <th className="px-3 py-2 w-[120px]">Day</th>
+                      <th className="px-3 py-2 w-[120px]">Period</th>
+                      <th className="px-3 py-2 text-center w-[85px]">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 bg-white">
@@ -750,24 +889,21 @@ export function PLTimetable() {
                       <tr key={idx} className="hover:bg-slate-50/20">
                         <td className="px-2 py-1.5">
                           <select
-                            value={row.sectionName}
-                            onChange={(e) => updateDraftCell(idx, 'sectionName', e.target.value)}
+                            value={row.offeringId || offerings.find(o => o.courses.code.toLowerCase() === row.courseCode.toLowerCase() && ((o.sections?.name || '').toLowerCase() === (row.sectionName || '').toLowerCase() || (o.group_label || '').toLowerCase() === (row.groupLabel || '').toLowerCase()))?.id || ''}
+                            onChange={(e) => handleSelectOfferingForDraft(idx, e.target.value)}
                             className="w-full p-1 border border-slate-200 rounded-md bg-transparent focus:outline-none focus:ring-1 focus:ring-accent-500 font-semibold"
                           >
-                            {sections.map(s => (
-                              <option key={s.id} value={s.name}>{s.name}</option>
-                            ))}
-                          </select>
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <select
-                            value={row.courseCode}
-                            onChange={(e) => updateDraftCell(idx, 'courseCode', e.target.value)}
-                            className="w-full p-1 border border-slate-200 rounded-md bg-transparent focus:outline-none focus:ring-1 focus:ring-accent-500 font-semibold"
-                          >
-                            {Array.from(new Set(offerings.map(o => o.courses.code))).map(code => (
-                              <option key={code} value={code}>{code}</option>
-                            ))}
+                            <option value="">-- Match Offering --</option>
+                            {offerings.map(o => {
+                              const label = o.section_id && o.group_label
+                                ? `${o.courses.name} — ${o.sections.name} (${o.group_label})`
+                                : !o.section_id && o.group_label
+                                  ? `${o.courses.name} — ${o.group_label}`
+                                  : `${o.courses.name} — ${o.sections.name}`;
+                              return (
+                                <option key={o.id} value={o.id}>{label}</option>
+                              );
+                            })}
                           </select>
                         </td>
                         <td className="px-2 py-1.5">

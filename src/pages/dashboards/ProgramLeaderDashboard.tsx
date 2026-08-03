@@ -422,7 +422,7 @@ export function ProgramLeaderDashboard() {
         .from('sessions')
         .select('id')
         .eq('course_offering_id', slot.course_offering_id)
-        .eq('date', subDate)
+        .eq('session_date', subDate)
         .eq('period_number', slot.period_number)
         .maybeSingle();
 
@@ -446,7 +446,7 @@ export function ProgramLeaderDashboard() {
           .from('sessions')
           .insert({
             course_offering_id: slot.course_offering_id,
-            date: subDate,
+            session_date: subDate,
             period_number: slot.period_number,
             status: 'scheduled',
             marked_by: selectedFacultyProfileId,
@@ -481,7 +481,7 @@ export function ProgramLeaderDashboard() {
           .from('sessions')
           .select('id')
           .eq('course_offering_id', slot.course_offering_id)
-          .eq('date', suspDate)
+          .eq('session_date', suspDate)
           .eq('period_number', slot.period_number)
           .maybeSingle();
 
@@ -493,7 +493,7 @@ export function ProgramLeaderDashboard() {
           // Create cancelled session
           await supabase.from('sessions').insert({
             course_offering_id: slot.course_offering_id,
-            date: suspDate,
+            session_date: suspDate,
             period_number: slot.period_number,
             status: 'cancelled'
           });
@@ -506,9 +506,15 @@ export function ProgramLeaderDashboard() {
         const dayName = getDayName(suspDate);
         const { data: secSlots } = await supabase
           .from('timetable')
-          .select('course_offering_id, period_number')
-          .eq('section_id', selectedSuspSectionId)
-          .eq('day_of_week', dayName);
+          .select(`
+            course_offering_id,
+            period_no,
+            course_offerings!inner (
+              section_id
+            )
+          `)
+          .eq('day_of_week', dayName)
+          .eq('course_offerings.section_id', selectedSuspSectionId);
 
         if (!secSlots || secSlots.length === 0) {
           throw new Error(`No scheduled classes found for this section on ${dayName}.`);
@@ -519,8 +525,8 @@ export function ProgramLeaderDashboard() {
             .from('sessions')
             .select('id')
             .eq('course_offering_id', slot.course_offering_id)
-            .eq('date', suspDate)
-            .eq('period_number', slot.period_number)
+            .eq('session_date', suspDate)
+            .eq('period_number', slot.period_no)
             .maybeSingle();
 
           if (session) {
@@ -529,8 +535,8 @@ export function ProgramLeaderDashboard() {
           } else {
             await supabase.from('sessions').insert({
               course_offering_id: slot.course_offering_id,
-              date: suspDate,
-              period_number: slot.period_number,
+              session_date: suspDate,
+              period_number: slot.period_no,
               status: 'cancelled'
             });
           }
