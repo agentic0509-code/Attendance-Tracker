@@ -54,8 +54,9 @@ export function TakeAttendance() {
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
   const getDayName = (dateStr: string): string => {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    const d = new Date(year, month - 1, day);
     const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-    const d = new Date(dateStr);
     return days[d.getDay()];
   };
 
@@ -94,17 +95,22 @@ export function TakeAttendance() {
 
       // 3. Fetch all timetable slots matching today's weekday for the current week's Monday
       const dayName = getDayName(selectedDate);
-      const getCurrentWeekMonday = (dStr?: string) => {
-        const d = dStr ? new Date(dStr) : new Date();
-        const day = d.getDay();
-        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-        const monday = new Date(d.setDate(diff));
-        return monday.toISOString().split('T')[0];
+      const getCurrentWeekMonday = (dStr: string) => {
+        const [year, month, day] = dStr.split('-').map(Number);
+        const d = new Date(year, month - 1, day);
+        const dayOfWeek = d.getDay();
+        const diff = d.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+        const monday = new Date(year, month - 1, diff);
+        const mYear = monday.getFullYear();
+        const mMonth = String(monday.getMonth() + 1).padStart(2, '0');
+        const mDay = String(monday.getDate()).padStart(2, '0');
+        return `${mYear}-${mMonth}-${mDay}`;
       };
       const weekMonday = getCurrentWeekMonday(selectedDate);
       
-      console.log('Computed weekday string:', dayName);
-      console.log('week_start_date:', weekMonday);
+      console.log('faculty_id being used:', facRow.id);
+      console.log('day_of_week string being used:', dayName);
+      console.log('week_start_date being used:', weekMonday);
 
       const { data: timetableSlots, error: ttError } = await supabase
         .from('timetable')
@@ -118,11 +124,10 @@ export function TakeAttendance() {
             group_label,
             faculty_id,
             sections (name),
-            courses!inner (code, name),
-            faculty!inner (id, name, profile_id)
+            courses!inner (code, name)
           )
         `)
-        .eq('course_offerings.faculty.profile_id', user.id)
+        .eq('course_offerings.faculty_id', facRow.id)
         .eq('day_of_week', dayName)
         .eq('week_start_date', weekMonday);
 

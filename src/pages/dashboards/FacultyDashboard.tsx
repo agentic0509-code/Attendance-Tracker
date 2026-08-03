@@ -70,25 +70,38 @@ export function FacultyDashboard() {
           }
 
           // Fetch today's classes
-          const todayDate = new Date().toISOString().split('T')[0];
+          const getLocalDateString = (d: Date = new Date()): string => {
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            return `${year}-${month}-${day}`;
+          };
+          const todayDate = getLocalDateString();
+          
           const getDayName = (dateStr: string): string => {
+            const [year, month, day] = dateStr.split('-').map(Number);
+            const d = new Date(year, month - 1, day);
             const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-            const d = new Date(dateStr);
             return days[d.getDay()];
           };
-          const getCurrentWeekMonday = (dStr?: string) => {
-            const d = dStr ? new Date(dStr) : new Date();
-            const day = d.getDay();
-            const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-            const monday = new Date(d.setDate(diff));
-            return monday.toISOString().split('T')[0];
+          const getCurrentWeekMonday = (dStr: string) => {
+            const [year, month, day] = dStr.split('-').map(Number);
+            const d = new Date(year, month - 1, day);
+            const dayOfWeek = d.getDay();
+            const diff = d.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+            const monday = new Date(year, month - 1, diff);
+            const mYear = monday.getFullYear();
+            const mMonth = String(monday.getMonth() + 1).padStart(2, '0');
+            const mDay = String(monday.getDate()).padStart(2, '0');
+            return `${mYear}-${mMonth}-${mDay}`;
           };
 
           const dayName = getDayName(todayDate);
           const weekMonday = getCurrentWeekMonday(todayDate);
 
-          console.log('Computed weekday string:', dayName);
-          console.log('week_start_date:', weekMonday);
+          console.log('faculty_id being used:', data.id);
+          console.log('day_of_week string being used:', dayName);
+          console.log('week_start_date being used:', weekMonday);
 
           const { data: slots, error: ttError } = await supabase
             .from('timetable')
@@ -100,12 +113,12 @@ export function FacultyDashboard() {
                 course_id,
                 section_id,
                 group_label,
+                faculty_id,
                 sections (name),
-                courses!inner (code, name),
-                faculty!inner (profile_id)
+                courses!inner (code, name)
               )
             `)
-            .eq('course_offerings.faculty.profile_id', user.id)
+            .eq('course_offerings.faculty_id', data.id)
             .eq('day_of_week', dayName)
             .eq('week_start_date', weekMonday);
 
