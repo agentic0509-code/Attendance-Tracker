@@ -108,9 +108,7 @@ export function TakeAttendance() {
       };
       const weekMonday = getCurrentWeekMonday(selectedDate);
       
-      console.log('faculty_id being used:', facRow.id);
-      console.log('day_of_week string being used:', dayName);
-      console.log('week_start_date being used:', weekMonday);
+      console.log('FILTER', {facultyId: facRow.id, dayName, weekMonday, weekType: typeof weekMonday, weekJson: JSON.stringify(weekMonday)});
 
       const { data: timetableSlots, error: ttError } = await supabase
         .from('timetable')

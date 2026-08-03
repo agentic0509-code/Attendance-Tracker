@@ -99,9 +99,7 @@ export function FacultyDashboard() {
           const dayName = getDayName(todayDate);
           const weekMonday = getCurrentWeekMonday(todayDate);
 
-          console.log('faculty_id being used:', data.id);
-          console.log('day_of_week string being used:', dayName);
-          console.log('week_start_date being used:', weekMonday);
+          console.log('FILTER', {facultyId: data.id, dayName, weekMonday, weekType: typeof weekMonday, weekJson: JSON.stringify(weekMonday)});
 
           const { data: slots, error: ttError } = await supabase
             .from('timetable')
