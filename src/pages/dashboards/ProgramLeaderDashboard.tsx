@@ -167,21 +167,28 @@ export function ProgramLeaderDashboard() {
         .select(`
           id,
           day_of_week,
-          period_number,
+          period_no,
           course_offering_id,
           course_offerings (
             id,
+            section_id,
             courses (code, name),
             sections (name),
             faculty (id, name, employee_code)
           )
         `)
-        .in('section_id', sectionIds)
         .eq('day_of_week', dayName);
 
-      setSubSlots(slots || []);
-      if (slots && slots.length > 0) {
-        setSelectedSlotId(slots[0].id);
+      const filtered = (slots || [])
+        .filter((s: any) => s.course_offerings && sectionIds.includes(s.course_offerings.section_id))
+        .map((s: any) => ({
+          ...s,
+          period_number: s.period_no
+        }));
+
+      setSubSlots(filtered);
+      if (filtered.length > 0) {
+        setSelectedSlotId(filtered[0].id);
       } else {
         setSelectedSlotId('');
       }
@@ -220,21 +227,28 @@ export function ProgramLeaderDashboard() {
         .select(`
           id,
           day_of_week,
-          period_number,
+          period_no,
           course_offering_id,
           course_offerings (
             id,
+            section_id,
             courses (code, name),
             sections (name),
             faculty (id, name, employee_code)
           )
         `)
-        .in('section_id', sectionIds)
         .eq('day_of_week', dayName);
 
-      setSuspSlots(slots || []);
-      if (slots && slots.length > 0) {
-        setSelectedSuspSlotId(slots[0].id);
+      const filtered = (slots || [])
+        .filter((s: any) => s.course_offerings && sectionIds.includes(s.course_offerings.section_id))
+        .map((s: any) => ({
+          ...s,
+          period_number: s.period_no
+        }));
+
+      setSuspSlots(filtered);
+      if (filtered.length > 0) {
+        setSelectedSuspSlotId(filtered[0].id);
       } else {
         setSelectedSuspSlotId('');
       }

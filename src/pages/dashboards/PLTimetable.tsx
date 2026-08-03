@@ -148,28 +148,28 @@ export function PLTimetable() {
   const fetchTimetable = async (sectionIds: string[]) => {
     if (sectionIds.length === 0) return;
     try {
-
       const { data: slots, error } = await supabase
         .from('timetable')
         .select(`
           day_of_week,
-          period_number,
-          section_id,
-          sections (name),
+          period_no,
           course_offering_id,
           course_offerings (
+            section_id,
+            sections (name),
             courses (code, name),
             faculty (name)
           )
-        `)
-        .in('section_id', sectionIds);
+        `);
 
       if (error) throw error;
 
-      const mapped: TimetableSlot[] = (slots || []).map((s: any) => ({
+      const filtered = (slots || []).filter((s: any) => s.course_offerings && sectionIds.includes(s.course_offerings.section_id));
+
+      const mapped: TimetableSlot[] = filtered.map((s: any) => ({
         day_of_week: s.day_of_week,
-        period_number: s.period_number,
-        section_name: s.sections?.name || 'N/A',
+        period_number: s.period_no,
+        section_name: s.course_offerings?.sections?.name || 'N/A',
         course_code: s.course_offerings?.courses?.code || 'N/A',
         course_name: s.course_offerings?.courses?.name || 'N/A',
         faculty_name: s.course_offerings?.faculty?.name || 'N/A'
@@ -184,6 +184,107 @@ export function PLTimetable() {
   useEffect(() => {
     loadInitialData();
   }, [user]);
+
+  // Handle CSV Parsing
+  const parseCSV = (text: string) => {
+    const lines: string[] = [];
+    let currentLine = '';
+    let inQuotes = false;
+    for (let i = 0; i < text.length; i++) {
+      const char = text[i];
+      if (char === '"') {
+        inQuotes = !inQuotes;
+      } else if (char === '\n' && !inQuotes) {
+        lines.push(currentLine);
+        currentLine = '';
+      } else if (char === '\r' && !inQuotes) {
+        // ignore CR
+      } else {
+        currentLine += char;
+      }
+    }
+    if (currentLine) lines.push(currentLine);
+
+    if (lines.length === 0) return [];
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+    
+    const results: any[] = [];
+    for (let i = 1; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+      
+      const values: string[] = [];
+      let currentValue = '';
+      let lineInQuotes = false;
+      for (let j = 0; j < line.length; j++) {
+        const char = line[j];
+        if (char === '"') {
+          lineInQuotes = !lineInQuotes;
+        } else if (char === ',' && !lineInQuotes) {
+          values.push(currentValue.trim().replace(/^"|"$/g, ''));
+          currentValue = '';
+        } else {
+          currentValue += char;
+        }
+      }
+      values.push(currentValue.trim().replace(/^"|"$/g, ''));
+
+      const rowObj: any = {};
+      headers.forEach((h, idx) => {
+        rowObj[h] = values[idx] || '';
+      });
+      results.push(rowObj);
+    }
+    return results;
+  };
+
+  const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setParsingError(null);
+    setValidationErrors([]);
+    setSaveSuccess(null);
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsParsing(true);
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const rows = parseCSV(text);
+        if (rows.length === 0) {
+          throw new Error('No rows found in CSV.');
+        }
+
+        const headers = Object.keys(rows[0]).map(h => h.trim().toLowerCase());
+        const requiredHeaders = ['section_name', 'course_code', 'day', 'period', 'term_name'];
+        const missing = requiredHeaders.filter(h => !headers.includes(h));
+        if (missing.length > 0) {
+          throw new Error(`Missing required headers: ${missing.join(', ')}`);
+        }
+
+        const mapped: DraftRow[] = rows.map((r: any) => {
+          const getVal = (key: string) => {
+            const actualKey = Object.keys(r).find(k => k.trim().toLowerCase() === key);
+            return actualKey ? r[actualKey]?.trim() : '';
+          };
+
+          return {
+            sectionName: getVal('section_name'),
+            courseCode: getVal('course_code'),
+            dayOfWeek: getVal('day'),
+            periodNumber: parseInt(getVal('period')) || 1
+          };
+        });
+
+        setDraftRows(mapped);
+      } catch (err: any) {
+        setParsingError(err.message || 'Error occurred during CSV parsing.');
+      } finally {
+        setIsParsing(false);
+      }
+    };
+    reader.readAsText(file);
+  };
 
   // Handle PDF Parsing
   const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -329,7 +430,7 @@ export function PLTimetable() {
         course_offering_id: string;
         section_id: string;
         day_of_week: string;
-        period_number: number;
+        period_no: number;
       }> = [];
 
       // Create maps for quick checks
@@ -359,9 +460,9 @@ export function PLTimetable() {
 
         resolvedSlots.push({
           course_offering_id: offering.id,
-          section_id: secId,
           day_of_week: row.dayOfWeek,
-          period_number: row.periodNumber
+          period_no: row.periodNumber,
+          section_id: secId
         });
       }
 
@@ -375,9 +476,9 @@ export function PLTimetable() {
       const seen = new Set<string>();
       for (let i = 0; i < resolvedSlots.length; i++) {
         const s = resolvedSlots[i];
-        const key = `${s.section_id}_${s.day_of_week}_${s.period_number}`;
+        const key = `${s.section_id}_${s.day_of_week}_${s.period_no}`;
         if (seen.has(key)) {
-          errors.push(`Row ${i + 1}: Multiple classes scheduled for section on ${s.day_of_week} at Period ${s.period_number}.`);
+          errors.push(`Row ${i + 1}: Multiple classes scheduled for section on ${s.day_of_week} at Period ${s.period_no}.`);
         }
         seen.add(key);
       }
@@ -391,16 +492,26 @@ export function PLTimetable() {
       // Write to DB: Delete existing timetable slots for the affected sections and write fresh
       const affectedSectionIds = Array.from(new Set(resolvedSlots.map(s => s.section_id)));
       if (affectedSectionIds.length > 0) {
-        const { error: delError } = await supabase
-          .from('timetable')
-          .delete()
-          .in('section_id', affectedSectionIds);
+        const affectedOfferings = offerings.filter(o => affectedSectionIds.includes(o.section_id));
+        const offeringIds = affectedOfferings.map(o => o.id);
+        if (offeringIds.length > 0) {
+          const { error: delError } = await supabase
+            .from('timetable')
+            .delete()
+            .in('course_offering_id', offeringIds);
 
-        if (delError) throw delError;
+          if (delError) throw delError;
+        }
       }
 
-      // Insert fresh slots
-      const { error: insError } = await supabase.from('timetable').insert(resolvedSlots);
+      // Insert fresh slots mapping to columns
+      const insertPayload = resolvedSlots.map(s => ({
+        course_offering_id: s.course_offering_id,
+        day_of_week: s.day_of_week,
+        period_no: s.period_no
+      }));
+
+      const { error: insError } = await supabase.from('timetable').insert(insertPayload);
       if (insError) throw insError;
 
       setSaveSuccess(`Successfully updated academic timetables for ${affectedSectionIds.length} sections.`);
@@ -536,16 +647,17 @@ export function PLTimetable() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* PDF Uploader Card */}
         <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-4">
-          <h3 className="font-bold text-slate-800 text-sm">1. Upload Schedule PDF</h3>
+          <h3 className="font-bold text-slate-800 text-sm">1. Import Timetable Schedule</h3>
           <p className="text-xs text-slate-400">
-            Select a timetable PDF file. The browser will attempt to automatically scan day, section, periods, and course codes.
+            Import timetable entries using a schedule PDF or a CSV file containing headers: <code className="bg-slate-50 px-1 py-0.5 border rounded text-[10px] font-mono">section_name, course_code, day, period, term_name</code>.
           </p>
 
-          <div className="flex items-center justify-center w-full">
-            <label className="flex flex-col items-center justify-center w-full h-36 border-2 border-slate-200 border-dashed rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
-              <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                <Upload className="w-8 h-8 text-slate-400 mb-2" />
-                <p className="text-xs text-slate-500 font-medium">Click to select PDF document</p>
+          <div className="grid grid-cols-1 gap-3">
+            {/* PDF Selector */}
+            <label className="flex flex-col items-center justify-center w-full h-24 border border-slate-200 border-dashed rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+              <div className="flex items-center gap-2">
+                <Upload className="w-5 h-5 text-slate-400" />
+                <span className="text-xs font-semibold text-slate-650">Upload Schedule PDF</span>
               </div>
               <input
                 type="file"
@@ -553,6 +665,21 @@ export function PLTimetable() {
                 className="hidden"
                 disabled={isParsing}
                 onChange={handlePdfUpload}
+              />
+            </label>
+
+            {/* CSV Selector */}
+            <label className="flex flex-col items-center justify-center w-full h-24 border border-slate-200 border-dashed rounded-xl cursor-pointer hover:bg-slate-50 transition-colors">
+              <div className="flex items-center gap-2">
+                <Table className="w-5 h-5 text-slate-400" />
+                <span className="text-xs font-semibold text-slate-650">Import Timetable CSV</span>
+              </div>
+              <input
+                type="file"
+                accept=".csv"
+                className="hidden"
+                disabled={isParsing}
+                onChange={handleCsvUpload}
               />
             </label>
           </div>

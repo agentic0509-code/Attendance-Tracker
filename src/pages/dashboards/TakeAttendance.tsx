@@ -94,13 +94,13 @@ export function TakeAttendance() {
       const { data: timetableSlots } = await supabase
         .from('timetable')
         .select(`
-          period_number,
-          section_id,
-          sections (name),
+          period_no,
           course_offering_id,
           course_offerings (
             id,
             course_id,
+            section_id,
+            sections (name),
             courses (code, name),
             faculty_id,
             faculty (id, name)
@@ -128,7 +128,7 @@ export function TakeAttendance() {
         if (!offering) return;
 
         // Check if there is a session override for this slot
-        const override = sessionMap.get(`${offering.id}_${s.period_number}`);
+        const override = sessionMap.get(`${offering.id}_${s.period_no}`);
         
         const isMyTimetabled = offering.faculty_id === facRow.id;
         const isMySubstitute = override && override.marked_by === user.id;
@@ -140,9 +140,9 @@ export function TakeAttendance() {
             offering_id: offering.id,
             course_code: offering.courses?.code || '',
             course_name: offering.courses?.name || '',
-            section_id: s.section_id,
-            section_name: s.sections?.name || '',
-            period_number: s.period_number,
+            section_id: offering.section_id,
+            section_name: offering.sections?.name || '',
+            period_number: s.period_no,
             timetabled_faculty_name: offering.faculty?.name || '',
             timetabled_faculty_id: offering.faculty_id,
             status: override ? override.status : 'pending',

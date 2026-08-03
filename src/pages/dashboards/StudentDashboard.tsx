@@ -127,15 +127,21 @@ export function StudentDashboard() {
           .from('timetable')
           .select(`
             day_of_week,
-            period_number,
-            course_offerings (
+            period_no,
+            course_offerings!inner (
+              section_id,
               courses (code, name),
               faculty (name)
             )
           `)
-          .eq('section_id', data.section_id);
+          .eq('course_offerings.section_id', data.section_id);
 
-        setSchedule(timetableSlots || []);
+        const mapped = (timetableSlots || []).map((s: any) => ({
+          day_of_week: s.day_of_week,
+          period_number: s.period_no,
+          course_offerings: s.course_offerings
+        }));
+        setSchedule(mapped);
       }
     } catch (err) {
       console.error('Error fetching student details:', err);
