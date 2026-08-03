@@ -122,17 +122,33 @@ export function FacultyDashboard() {
             .eq('day_of_week', dayName)
             .eq('week_start_date', weekMonday);
 
-          if (ttError) throw ttError;
+          if (ttError) {
+            console.error('Timetable query error:', {
+              message: ttError.message,
+              details: ttError.details,
+              hint: ttError.hint
+            });
+            throw ttError;
+          }
 
           // Fetch session overrides
-          const { data: dateSessions } = await supabase
+          const { data: dateSessions, error: sessError } = await supabase
             .from('sessions')
-            .select('course_offering_id, period_number, status')
+            .select('course_offering_id, period_no, status')
             .eq('session_date', todayDate);
+
+          if (sessError) {
+            console.error('Sessions query error:', {
+              message: sessError.message,
+              details: sessError.details,
+              hint: sessError.hint
+            });
+            throw sessError;
+          }
 
           const sessionMap = new Map<string, string>();
           dateSessions?.forEach(s => {
-            sessionMap.set(`${s.course_offering_id}_${s.period_number}`, s.status);
+            sessionMap.set(`${s.course_offering_id}_${s.period_no}`, s.status);
           });
 
           const mapped = (slots || []).map((s: any) => {

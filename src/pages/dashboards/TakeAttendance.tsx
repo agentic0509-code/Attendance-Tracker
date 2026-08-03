@@ -131,20 +131,36 @@ export function TakeAttendance() {
         .eq('day_of_week', dayName)
         .eq('week_start_date', weekMonday);
 
-      if (ttError) throw ttError;
+      if (ttError) {
+        console.error('Timetable query error:', {
+          message: ttError.message,
+          details: ttError.details,
+          hint: ttError.hint
+        });
+        throw ttError;
+      }
 
       // Filter slots where this faculty teaches, OR check if they are substitute on this date
       const matchedSlots: ClassSlot[] = [];
 
       // 4. Fetch all sessions recorded for this date (substitutions or suspensions)
-      const { data: dateSessions } = await supabase
+      const { data: dateSessions, error: sessError } = await supabase
         .from('sessions')
-        .select('id, course_offering_id, period_number, status, marked_by, substitute_for_id')
+        .select('id, course_offering_id, period_no, status, marked_by, substitute_for')
         .eq('session_date', selectedDate);
+
+      if (sessError) {
+        console.error('Sessions query error:', {
+          message: sessError.message,
+          details: sessError.details,
+          hint: sessError.hint
+        });
+        throw sessError;
+      }
 
       const sessionMap = new Map<string, any>();
       dateSessions?.forEach(s => {
-        sessionMap.set(`${s.course_offering_id}_${s.period_number}`, s);
+        sessionMap.set(`${s.course_offering_id}_${s.period_no}`, s);
       });
 
       // Map timetabled slots
@@ -169,7 +185,7 @@ export function TakeAttendance() {
           timetabled_faculty_id: offering.faculty_id,
           status: override ? override.status : 'pending',
           session_id: override?.id,
-          isSubstitute: !!(override && override.substitute_for_id && override.marked_by === user.id)
+          isSubstitute: !!(override && override.substitute_for && override.marked_by === user.id)
         });
       });
 
@@ -177,13 +193,13 @@ export function TakeAttendance() {
       dateSessions?.forEach(s => {
         if (s.marked_by === user.id) {
           // If not already mapped in matchedSlots
-          const alreadyMapped = matchedSlots.some(m => m.offering_id === s.course_offering_id && m.period_number === s.period_number);
+          const alreadyMapped = matchedSlots.some(m => m.offering_id === s.course_offering_id && m.period_number === s.period_no);
           if (!alreadyMapped) {
             // Find course offering details
             const offeringDetails = offerings_cache.find(o => o.id === s.course_offering_id);
             if (offeringDetails) {
               const secName = offeringDetails.section_id 
-                ? (offeringDetails.group_label ? `${offeringDetails.sections?.name || ''} (${offeringDetails.group_label})` : (offeringDetails.sections?.name || ''))
+                ? (offeringDetails.group_label ? (offeringDetails.sections?.name || '') + (offeringDetails.group_label ? ` (${offeringDetails.group_label})` : '') : (offeringDetails.sections?.name || ''))
                 : (offeringDetails.group_label || 'Group Class');
               matchedSlots.push({
                 offering_id: s.course_offering_id,
@@ -191,7 +207,7 @@ export function TakeAttendance() {
                 course_name: offeringDetails.courses?.name || '',
                 section_id: offeringDetails.section_id,
                 section_name: secName,
-                period_number: s.period_number,
+                period_number: s.period_no,
                 timetabled_faculty_name: offeringDetails.faculty?.name || '',
                 timetabled_faculty_id: offeringDetails.faculty_id,
                 status: s.status,
@@ -298,18 +314,18 @@ export function TakeAttendance() {
       const payload: any = {
         course_offering_id: activeClass.offering_id,
         session_date: selectedDate,
-        period_number: activeClass.period_number,
+        period_no: activeClass.period_number,
         status: 'completed',
         marked_by: user.id
       };
 
       if (activeClass.isSubstitute) {
-        payload.substitute_for_id = activeClass.timetabled_faculty_id;
+        payload.substitute_for = activeClass.timetabled_faculty_id;
       }
 
       const { data: session, error: sessErr } = await supabase
         .from('sessions')
-        .upsert(payload, { onConflict: 'course_offering_id, session_date, period_number' })
+        .upsert(payload, { onConflict: 'course_offering_id, session_date, period_no' })
         .select('id')
         .single();
 
