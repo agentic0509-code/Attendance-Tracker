@@ -130,7 +130,7 @@ export function FacultyDashboard() {
           // Fetch session overrides
           const { data: dateSessions, error: sessError } = await supabase
             .from('sessions')
-            .select('course_offering_id, period_number, status')
+            .select('course_offering_id, period_no, status')
             .eq('session_date', todayDate);
 
           if (sessError) {
@@ -140,7 +140,7 @@ export function FacultyDashboard() {
 
           const sessionMap = new Map<string, string>();
           dateSessions?.forEach(s => {
-            sessionMap.set(`${s.course_offering_id}_${s.period_number}`, s.status);
+            sessionMap.set(`${s.course_offering_id}_${s.period_no}`, s.status);
           });
 
           const mapped = (slots || []).map((s: any) => {

@@ -143,7 +143,7 @@ export function TakeAttendance() {
       // 4. Fetch all sessions recorded for this date (substitutions or suspensions)
       const { data: dateSessions, error: sessError } = await supabase
         .from('sessions')
-        .select('id, course_offering_id, period_number, status, marked_by, substitute_for_id')
+        .select('id, course_offering_id, period_no, status, marked_by, substitute_for')
         .eq('session_date', selectedDate);
 
       if (sessError) {
@@ -153,7 +153,7 @@ export function TakeAttendance() {
 
       const sessionMap = new Map<string, any>();
       dateSessions?.forEach(s => {
-        sessionMap.set(`${s.course_offering_id}_${s.period_number}`, s);
+        sessionMap.set(`${s.course_offering_id}_${s.period_no}`, s);
       });
 
       // Map timetabled slots
@@ -178,7 +178,7 @@ export function TakeAttendance() {
           timetabled_faculty_id: offering.faculty_id,
           status: override ? override.status : 'pending',
           session_id: override?.id,
-          isSubstitute: !!(override && override.substitute_for_id && override.marked_by === user.id)
+          isSubstitute: !!(override && override.substitute_for && override.marked_by === user.id)
         });
       });
 
@@ -186,7 +186,7 @@ export function TakeAttendance() {
       dateSessions?.forEach(s => {
         if (s.marked_by === user.id) {
           // If not already mapped in matchedSlots
-          const alreadyMapped = matchedSlots.some(m => m.offering_id === s.course_offering_id && m.period_number === s.period_number);
+          const alreadyMapped = matchedSlots.some(m => m.offering_id === s.course_offering_id && m.period_number === s.period_no);
           if (!alreadyMapped) {
             // Find course offering details
             const offeringDetails = offerings_cache.find(o => o.id === s.course_offering_id);
@@ -200,7 +200,7 @@ export function TakeAttendance() {
                 course_name: offeringDetails.courses?.name || '',
                 section_id: offeringDetails.section_id,
                 section_name: secName,
-                period_number: s.period_number,
+                period_number: s.period_no,
                 timetabled_faculty_name: offeringDetails.faculty?.name || '',
                 timetabled_faculty_id: offeringDetails.faculty_id,
                 status: s.status,

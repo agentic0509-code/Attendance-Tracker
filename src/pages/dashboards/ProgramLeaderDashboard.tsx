@@ -441,7 +441,7 @@ export function ProgramLeaderDashboard() {
         .select('id')
         .eq('course_offering_id', slot.course_offering_id)
         .eq('session_date', subDate)
-        .eq('period_number', slot.period_number)
+        .eq('period_no', slot.period_number)
         .maybeSingle();
 
       if (sessErr) throw sessErr;
@@ -451,7 +451,7 @@ export function ProgramLeaderDashboard() {
         const { error: updErr } = await supabase
           .from('sessions')
           .update({
-            substitute_for_id: offering.faculty.id,
+            substitute_for: offering.faculty.id,
             marked_by: selectedFacultyProfileId,
             status: 'scheduled'
           })
@@ -465,10 +465,10 @@ export function ProgramLeaderDashboard() {
           .insert({
             course_offering_id: slot.course_offering_id,
             session_date: subDate,
-            period_number: slot.period_number,
+            period_no: slot.period_number,
             status: 'scheduled',
             marked_by: selectedFacultyProfileId,
-            substitute_for_id: offering.faculty.id
+            substitute_for: offering.faculty.id
           });
 
         if (insErr) throw insErr;
@@ -500,7 +500,7 @@ export function ProgramLeaderDashboard() {
           .select('id')
           .eq('course_offering_id', slot.course_offering_id)
           .eq('session_date', suspDate)
-          .eq('period_number', slot.period_number)
+          .eq('period_no', slot.period_number)
           .maybeSingle();
 
         if (session) {
@@ -512,7 +512,7 @@ export function ProgramLeaderDashboard() {
           await supabase.from('sessions').insert({
             course_offering_id: slot.course_offering_id,
             session_date: suspDate,
-            period_number: slot.period_number,
+            period_no: slot.period_number,
             status: 'cancelled'
           });
         }
@@ -544,7 +544,7 @@ export function ProgramLeaderDashboard() {
             .select('id')
             .eq('course_offering_id', slot.course_offering_id)
             .eq('session_date', suspDate)
-            .eq('period_number', slot.period_no)
+            .eq('period_no', slot.period_no)
             .maybeSingle();
 
           if (session) {
@@ -554,7 +554,7 @@ export function ProgramLeaderDashboard() {
             await supabase.from('sessions').insert({
               course_offering_id: slot.course_offering_id,
               session_date: suspDate,
-              period_number: slot.period_no,
+              period_no: slot.period_no,
               status: 'cancelled'
             });
           }
