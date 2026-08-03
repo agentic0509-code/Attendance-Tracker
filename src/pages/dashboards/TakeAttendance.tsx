@@ -103,7 +103,8 @@ export function TakeAttendance() {
             sections (name),
             courses (code, name),
             faculty_id,
-            faculty (id, name)
+            faculty (id, name),
+            group_label
           )
         `)
         .eq('day_of_week', dayName);
@@ -141,7 +142,7 @@ export function TakeAttendance() {
             course_code: offering.courses?.code || '',
             course_name: offering.courses?.name || '',
             section_id: offering.section_id,
-            section_name: offering.sections?.name || '',
+            section_name: offering.section_id ? (offering.sections?.name || '') : (offering.group_label || 'Group Class'),
             period_number: s.period_no,
             timetabled_faculty_name: offering.faculty?.name || '',
             timetabled_faculty_id: offering.faculty_id,
@@ -166,7 +167,7 @@ export function TakeAttendance() {
                 course_code: offeringDetails.courses?.code || '',
                 course_name: offeringDetails.courses?.name || '',
                 section_id: offeringDetails.section_id,
-                section_name: offeringDetails.sections?.name || '',
+                section_name: offeringDetails.section_id ? (offeringDetails.sections?.name || '') : (offeringDetails.group_label || 'Group Class'),
                 period_number: s.period_number,
                 timetabled_faculty_name: offeringDetails.faculty?.name || '',
                 timetabled_faculty_id: offeringDetails.faculty_id,
@@ -197,7 +198,8 @@ export function TakeAttendance() {
       section_id,
       sections (name),
       faculty_id,
-      faculty (name)
+      faculty (name),
+      group_label
     `).then(({ data }) => {
       setOfferingsCache(data || []);
     });

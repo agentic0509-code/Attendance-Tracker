@@ -39,6 +39,16 @@ export function ProgramLeaderDashboard() {
   const [selectedSuspSlotId, setSelectedSuspSlotId] = useState<string>('');
   const [selectedSuspSectionId, setSelectedSuspSectionId] = useState<string>('');
   const [sections, setSections] = useState<any[]>([]);
+
+  // Analytics States
+  const [selectedSectionId, setSelectedSectionId] = useState<string>('');
+  const [studentsList, setStudentsList] = useState<any[]>([]);
+  const [coreCourses, setCoreCourses] = useState<any[]>([]);
+  const [electiveCourses, setElectiveCourses] = useState<any[]>([]);
+  const [enrollments, setEnrollments] = useState<any[]>([]);
+  const [attendanceData, setAttendanceData] = useState<any[]>([]);
+  const [loadingAnalytics, setLoadingAnalytics] = useState(false);
+
   const [suspFeedback, setSuspFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
   const [submittingSusp, setSubmittingSusp] = useState(false);
 
@@ -93,6 +103,8 @@ export function ProgramLeaderDashboard() {
       setSections(sectionList);
       if (sectionList.length > 0) {
         setSelectedSuspSectionId(sectionList[0].id);
+        setSelectedSectionId(sectionList[0].id);
+        loadSectionAnalytics(sectionList[0].id);
       }
 
       // 4. Scoped stats
@@ -254,6 +266,133 @@ export function ProgramLeaderDashboard() {
       }
     } catch (err) {
       console.error('Error loading suspension slots:', err);
+    }
+  };
+
+  const loadSectionAnalytics = async (secId: string) => {
+    if (!secId) return;
+    setLoadingAnalytics(true);
+    try {
+      // 1. Fetch term
+      const { data: termData } = await supabase
+        .from('terms')
+        .select('id')
+        .eq('is_active', true)
+        .maybeSingle();
+
+      if (!termData) return;
+
+      // 2. Fetch students
+      const { data: stds, error: stdsErr } = await supabase
+        .from('students')
+        .select('id, name, roll_no, admission_no')
+        .eq('section_id', secId)
+        .order('name');
+
+      if (stdsErr) throw stdsErr;
+      setStudentsList(stds || []);
+
+      // 3. Fetch core course offerings for this section and term
+      const { data: cores, error: coresErr } = await supabase
+        .from('course_offerings')
+        .select(`
+          id,
+          course_id,
+          courses (code, name)
+        `)
+        .eq('section_id', secId)
+        .eq('term_id', termData.id);
+
+      if (coresErr) throw coresErr;
+      setCoreCourses(cores || []);
+
+      // 4. Fetch elective course offerings (section_id IS NULL and group_label IS NOT NULL) for this term
+      const { data: electives, error: electivesErr } = await supabase
+        .from('course_offerings')
+        .select(`
+          id,
+          course_id,
+          group_label,
+          courses (code, name)
+        `)
+        .is('section_id', null)
+        .not('group_label', 'is', null)
+        .eq('term_id', termData.id);
+
+      if (electivesErr) throw electivesErr;
+      setElectiveCourses(electives || []);
+
+      // 5. Fetch enrollments for the students in this section
+      const studentIds = stds?.map(s => s.id) || [];
+      if (studentIds.length > 0) {
+        const { data: enrolls, error: enrollsErr } = await supabase
+          .from('enrollments')
+          .select('student_id, course_offering_id')
+          .in('student_id', studentIds);
+
+        if (enrollsErr) throw enrollsErr;
+        setEnrollments(enrolls || []);
+
+        // 6. Fetch completed sessions for both core and elective offerings
+        const allOfferings = [...(cores || []).map(o => o.id), ...(electives || []).map(o => o.id)];
+        if (allOfferings.length > 0) {
+          const { data: sessions, error: sessErr } = await supabase
+            .from('sessions')
+            .select('id, course_offering_id')
+            .eq('status', 'completed')
+            .in('course_offering_id', allOfferings);
+
+          if (sessErr) throw sessErr;
+
+          const sessionIds = sessions?.map(s => s.id) || [];
+          if (sessionIds.length > 0) {
+            const { data: atts, error: attsErr } = await supabase
+              .from('attendance')
+              .select('student_id, session_id, status')
+              .in('session_id', sessionIds);
+
+            if (attsErr) throw attsErr;
+
+            // Compute compliance statistics
+            const attendanceSummary = stds.map(student => {
+              const complianceMap: Record<string, { present: number; total: number }> = {};
+              
+              allOfferings.forEach(offeringId => {
+                const offeringSessions = sessions.filter(s => s.course_offering_id === offeringId);
+                const offeringSessionIds = offeringSessions.map(s => s.id);
+                
+                const studentLogs = (atts || []).filter(
+                  a => a.student_id === student.id && offeringSessionIds.includes(a.session_id)
+                );
+
+                const presentCount = studentLogs.filter(l => l.status === 'present').length;
+                complianceMap[offeringId] = {
+                  present: presentCount,
+                  total: offeringSessions.length
+                };
+              });
+
+              return {
+                student_id: student.id,
+                compliance: complianceMap
+              };
+            });
+
+            setAttendanceData(attendanceSummary);
+          } else {
+            setAttendanceData([]);
+          }
+        } else {
+          setAttendanceData([]);
+        }
+      } else {
+        setEnrollments([]);
+        setAttendanceData([]);
+      }
+    } catch (err) {
+      console.error('Error loading section analytics:', err);
+    } finally {
+      setLoadingAnalytics(false);
     }
   };
 
@@ -474,6 +613,139 @@ export function ProgramLeaderDashboard() {
         })}
       </div>
 
+      {/* Roster & Compliance Analytics Table */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm space-y-5">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <h3 className="font-bold text-slate-800 text-base">Section Performance & Roster</h3>
+            <p className="text-xs text-slate-400 mt-1">
+              Verify real-time attendance compliance across core modules and elective student groups.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-500">Target Section:</span>
+            <select
+              value={selectedSectionId}
+              onChange={(e) => {
+                setSelectedSectionId(e.target.value);
+                loadSectionAnalytics(e.target.value);
+              }}
+              className="p-2 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-accent-500 bg-slate-50 text-slate-700"
+            >
+              {sections.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {loadingAnalytics ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-6 h-6 text-accent-600 animate-spin" />
+          </div>
+        ) : studentsList.length === 0 ? (
+          <div className="text-center py-12 text-slate-400 text-xs">
+            No students found registered in this section.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-slate-150 text-[10px] text-slate-400 uppercase font-bold tracking-wider bg-slate-50/50">
+                  <th className="py-3 px-4 w-[120px]">Roll No</th>
+                  <th className="py-3 px-4">Student Name</th>
+                  {/* Core Courses Headers */}
+                  {coreCourses.map((cc) => (
+                    <th key={cc.id} className="py-3 px-4 text-center">
+                      {cc.courses?.code || 'Core'}
+                    </th>
+                  ))}
+                  {/* Elective Courses Headers */}
+                  {electiveCourses.map((ec) => (
+                    <th key={ec.id} className="py-3 px-4 text-center">
+                      {ec.courses?.name} ({ec.group_label})
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 text-xs">
+                {studentsList.map((student) => {
+                  const studentAtt = attendanceData.find((ad) => ad.student_id === student.id);
+                  
+                  return (
+                    <tr key={student.id} className="hover:bg-slate-50/50 transition-colors">
+                      <td className="py-3 px-4 font-mono text-slate-500">{student.roll_no || student.admission_no || '-'}</td>
+                      <td className="py-3 px-4 font-semibold text-slate-750">{student.name}</td>
+                      
+                      {/* Core Courses cells */}
+                      {coreCourses.map((cc) => {
+                        const cellData = studentAtt?.compliance[cc.id];
+                        if (!cellData || cellData.total === 0) {
+                          return (
+                            <td key={cc.id} className="py-3 px-4 text-center text-slate-400 italic">
+                              -
+                            </td>
+                          );
+                        }
+                        const percentage = parseFloat(((cellData.present / cellData.total) * 100).toFixed(1));
+                        const isUnder = percentage < 75;
+                        return (
+                          <td
+                            key={cc.id}
+                            className={`py-3 px-4 text-center font-bold ${
+                              isUnder ? 'text-rose-650 font-extrabold' : 'text-emerald-600'
+                            }`}
+                          >
+                            {percentage}% <span className="text-[10px] text-slate-400 font-normal">({cellData.present}/{cellData.total})</span>
+                          </td>
+                        );
+                      })}
+
+                      {/* Elective Courses cells */}
+                      {electiveCourses.map((ec) => {
+                        const isEnrolled = enrollments.some(
+                          (e) => e.student_id === student.id && e.course_offering_id === ec.id
+                        );
+                        if (!isEnrolled) {
+                          return (
+                            <td key={ec.id} className="py-3 px-4 text-center text-slate-350 bg-slate-50/20 italic">
+                              -
+                            </td>
+                          );
+                        }
+
+                        const cellData = studentAtt?.compliance[ec.id];
+                        if (!cellData || cellData.total === 0) {
+                          return (
+                            <td key={ec.id} className="py-3 px-4 text-center text-slate-400 font-medium bg-slate-50/10 italic">
+                              Enrolled
+                            </td>
+                          );
+                        }
+                        const percentage = parseFloat(((cellData.present / cellData.total) * 100).toFixed(1));
+                        const isUnder = percentage < 75;
+                        return (
+                          <td
+                            key={ec.id}
+                            className={`py-3 px-4 text-center font-bold bg-slate-50/10 ${
+                              isUnder ? 'text-rose-650 font-extrabold' : 'text-emerald-600'
+                            }`}
+                          >
+                            {percentage}% <span className="text-[10px] text-slate-400 font-normal">({cellData.present}/{cellData.total})</span>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* Audit Panel: Substitutions and Suspensions */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         
@@ -517,7 +789,7 @@ export function ProgramLeaderDashboard() {
                   <option value="">-- Select timetabled class --</option>
                   {subSlots.map((slot) => (
                     <option key={slot.id} value={slot.id}>
-                      [{slot.course_offerings?.courses?.code}] {slot.course_offerings?.sections?.name} - Period {slot.period_number}
+                      [{slot.course_offerings?.courses?.code}] {slot.course_offerings?.sections?.name || slot.course_offerings?.group_label} - Period {slot.period_number}
                     </option>
                   ))}
                 </select>
@@ -616,11 +888,11 @@ export function ProgramLeaderDashboard() {
                     className="block w-full p-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-accent-500 text-sm"
                   >
                     <option value="">-- Select timetabled class --</option>
-                    {suspSlots.map((slot) => (
-                      <option key={slot.id} value={slot.id}>
-                        [{slot.course_offerings?.courses?.code}] {slot.course_offerings?.sections?.name} - Period {slot.period_number}
-                      </option>
-                    ))}
+                     {suspSlots.map((slot) => (
+                       <option key={slot.id} value={slot.id}>
+                         [{slot.course_offerings?.courses?.code}] {slot.course_offerings?.sections?.name || slot.course_offerings?.group_label} - Period {slot.period_number}
+                       </option>
+                     ))}
                   </select>
                 </div>
               ) : (
