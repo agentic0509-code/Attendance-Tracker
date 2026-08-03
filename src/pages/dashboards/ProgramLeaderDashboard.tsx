@@ -14,19 +14,12 @@ import {
   Info
 } from 'lucide-react';
 
-interface PLDepartment {
-  department_id: string;
-  name: string;
-  code: string;
-}
-
 export function ProgramLeaderDashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
 
   // General States
   const [loading, setLoading] = useState(true);
-  const [plDept, setPlDept] = useState<PLDepartment | null>(null);
   const [stats, setStats] = useState({ batches: 0, sections: 0, students: 0 });
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -69,7 +62,6 @@ export function ProgramLeaderDashboard() {
         .maybeSingle();
 
       if (!termData) {
-        setPlDept(null);
         setLoading(false);
         return;
       }
@@ -77,29 +69,15 @@ export function ProgramLeaderDashboard() {
       // 2. Fetch logged-in user's Faculty Row
       const { data: facRow, error: facErr } = await supabase
         .from('faculty')
-        .select(`
-          id,
-          name,
-          department_id,
-          departments (name, code)
-        `)
+        .select('id, name')
         .eq('profile_id', user.id)
         .maybeSingle();
 
       if (facErr) throw facErr;
       if (!facRow) {
-        setPlDept(null);
         setLoading(false);
         return;
       }
-
-      // Populate plDept (resolved via faculty -> department link)
-      const dept = facRow.departments as any;
-      setPlDept({
-        department_id: facRow.department_id,
-        name: dept?.name || '',
-        code: dept?.code || ''
-      });
 
       // 3. Fetch program leader assigned sections
       const { data: assignments } = await supabase
@@ -160,7 +138,7 @@ export function ProgramLeaderDashboard() {
   };
 
   const loadSubstitutionSlots = async (dateStr: string, explicitSectionIds?: string[]) => {
-    if (!plDept) return;
+    if (!user) return;
     try {
       let sectionIds = explicitSectionIds;
       if (!sectionIds) {
@@ -213,7 +191,7 @@ export function ProgramLeaderDashboard() {
   };
 
   const loadSuspensionSlots = async (dateStr: string, explicitSectionIds?: string[]) => {
-    if (!plDept) return;
+    if (!user) return;
     try {
       let sectionIds = explicitSectionIds;
       if (!sectionIds) {
@@ -421,13 +399,13 @@ export function ProgramLeaderDashboard() {
     );
   }
 
-  if (!plDept) {
+  if (sections.length === 0) {
     return (
       <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm text-center max-w-xl mx-auto space-y-4">
         <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto" />
-        <h3 className="text-lg font-bold text-slate-800">No Department Assigned</h3>
+        <h3 className="text-lg font-bold text-slate-800">No Sections Assigned</h3>
         <p className="text-slate-500 text-sm">
-          Your Program Leader profile is not linked to any academic department. Please contact the administrator.
+          Your Program Leader profile is not linked to any academic sections. Please contact the administrator.
         </p>
       </div>
     );
@@ -447,7 +425,7 @@ export function ProgramLeaderDashboard() {
           <div>
             <h2 className="text-2xl font-black tracking-tight text-white mb-2">Program Leader Overview</h2>
             <p className="text-slate-300 text-sm max-w-2xl">
-              Track compliance, assign substitutions, schedule suspended sessions, and verify student performance for the **{plDept.name}** program.
+              Track compliance, assign substitutions, schedule suspended sessions, and verify student performance for your assigned sections.
             </p>
           </div>
           <button

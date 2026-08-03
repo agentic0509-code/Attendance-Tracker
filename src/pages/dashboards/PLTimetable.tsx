@@ -9,16 +9,9 @@ import {
   AlertTriangle,
   Loader2,
   Table,
-  Building,
   Info,
   Grid
 } from 'lucide-react';
-
-interface PLDepartment {
-  department_id: string;
-  name: string;
-  code: string;
-}
 
 interface DraftRow {
   sectionName: string;
@@ -38,12 +31,9 @@ interface TimetableSlot {
 
 export function PLTimetable() {
   const { user } = useAuth();
-  
-  // Loader and configuration states
   const [loading, setLoading] = useState(true);
-  const [plDept, setPlDept] = useState<PLDepartment | null>(null);
   const [activeTerm, setActiveTerm] = useState<{ id: string; name: string } | null>(null);
-  
+
   // Data lists
   const [sections, setSections] = useState<Array<{ id: string; name: string }>>([]);
   const [offerings, setOfferings] = useState<any[]>([]);
@@ -88,7 +78,6 @@ export function PLTimetable() {
         .maybeSingle();
 
       if (!termData) {
-        setPlDept(null);
         setLoading(false);
         return;
       }
@@ -97,28 +86,14 @@ export function PLTimetable() {
       // 2. Fetch logged-in user's Faculty Row
       const { data: myFaculty } = await supabase
         .from('faculty')
-        .select(`
-          id,
-          name,
-          department_id,
-          departments (name, code)
-        `)
+        .select('id, name')
         .eq('profile_id', user.id)
         .maybeSingle();
 
       if (!myFaculty) {
-        setPlDept(null);
         setLoading(false);
         return;
       }
-
-      // Populate plDept (resolved via faculty -> department link)
-      const dept = myFaculty.departments as any;
-      setPlDept({
-        department_id: myFaculty.department_id,
-        name: dept?.name || '',
-        code: dept?.code || ''
-      });
 
       // 3. Fetch program leader assigned sections
       const { data: assignments } = await supabase
@@ -449,13 +424,13 @@ export function PLTimetable() {
     );
   }
 
-  if (!plDept) {
+  if (sections.length === 0) {
     return (
       <div className="bg-white p-8 rounded-2xl border border-slate-100 shadow-sm text-center max-w-xl mx-auto space-y-4">
         <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto" />
-        <h3 className="text-lg font-bold text-slate-800">No Department Assigned</h3>
+        <h3 className="text-lg font-bold text-slate-800">No Sections Assigned</h3>
         <p className="text-slate-500 text-sm">
-          Your Program Leader profile is not linked to any academic department. Please contact the administrator.
+          Your Program Leader profile is not linked to any academic sections. Please contact the administrator.
         </p>
       </div>
     );
@@ -476,10 +451,6 @@ export function PLTimetable() {
       <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl p-6 md:p-8 text-white shadow-lg">
         <div className="flex justify-between items-start">
           <div>
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold bg-accent-500/20 text-accent-300 border border-accent-500/20 mb-3">
-              <Building className="w-3.5 h-3.5" />
-              {plDept.name} ({plDept.code})
-            </span>
             <h2 className="text-2xl font-black tracking-tight text-white mb-2">Timetable Editor</h2>
             <p className="text-slate-300 text-sm max-w-2xl">
               Publish structured timetables for sections. Upload a schedule PDF, edit cells dynamically, and confirm allocations.
