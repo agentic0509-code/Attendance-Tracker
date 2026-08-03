@@ -173,6 +173,14 @@ export function ProgramLeaderDashboard() {
       }
 
       const dayName = getDayName(dateStr);
+      const getCurrentWeekMonday = (dStr?: string) => {
+        const d = dStr ? new Date(dStr) : new Date();
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(d.setDate(diff));
+        return monday.toISOString().split('T')[0];
+      };
+      const weekMonday = getCurrentWeekMonday(dateStr);
 
       const { data: slots } = await supabase
         .from('timetable')
@@ -189,7 +197,8 @@ export function ProgramLeaderDashboard() {
             faculty (id, name, employee_code)
           )
         `)
-        .eq('day_of_week', dayName);
+        .eq('day_of_week', dayName)
+        .eq('week_start_date', weekMonday);
 
       const filtered = (slots || [])
         .filter((s: any) => s.course_offerings && sectionIds.includes(s.course_offerings.section_id))
@@ -233,6 +242,14 @@ export function ProgramLeaderDashboard() {
       }
 
       const dayName = getDayName(dateStr);
+      const getCurrentWeekMonday = (dStr?: string) => {
+        const d = dStr ? new Date(dStr) : new Date();
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(d.setDate(diff));
+        return monday.toISOString().split('T')[0];
+      };
+      const weekMonday = getCurrentWeekMonday(dateStr);
 
       const { data: slots } = await supabase
         .from('timetable')
@@ -249,7 +266,8 @@ export function ProgramLeaderDashboard() {
             faculty (id, name, employee_code)
           )
         `)
-        .eq('day_of_week', dayName);
+        .eq('day_of_week', dayName)
+        .eq('week_start_date', weekMonday);
 
       const filtered = (slots || [])
         .filter((s: any) => s.course_offerings && sectionIds.includes(s.course_offerings.section_id))

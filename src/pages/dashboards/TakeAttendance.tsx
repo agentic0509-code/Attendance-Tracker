@@ -88,8 +88,16 @@ export function TakeAttendance() {
         throw new Error('No active academic term configured.');
       }
 
-      // 3. Fetch all timetable slots matching today's weekday in the active term
+      // 3. Fetch all timetable slots matching today's weekday for the current week's Monday
       const dayName = getDayName(selectedDate);
+      const getCurrentWeekMonday = (dStr?: string) => {
+        const d = dStr ? new Date(dStr) : new Date();
+        const day = d.getDay();
+        const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+        const monday = new Date(d.setDate(diff));
+        return monday.toISOString().split('T')[0];
+      };
+      const weekMonday = getCurrentWeekMonday(selectedDate);
       
       const { data: timetableSlots } = await supabase
         .from('timetable')
@@ -107,7 +115,8 @@ export function TakeAttendance() {
             group_label
           )
         `)
-        .eq('day_of_week', dayName);
+        .eq('day_of_week', dayName)
+        .eq('week_start_date', weekMonday);
 
       // Filter slots where this faculty teaches, OR check if they are substitute on this date
       const matchedSlots: ClassSlot[] = [];

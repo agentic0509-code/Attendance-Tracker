@@ -20,6 +20,7 @@ interface DraftRow {
   periodNumber: number;
   groupLabel?: string;
   offeringId?: string;
+  weekStartDate?: string;
 }
 
 interface TimetableSlot {
@@ -41,6 +42,18 @@ export function PLTimetable() {
   const [offerings, setOfferings] = useState<any[]>([]);
   const [timetableSlots, setTimetableSlots] = useState<TimetableSlot[]>([]);
   const [selectedSectionGrid, setSelectedSectionGrid] = useState<string>('');
+
+  // Week-aware States
+  const getCurrentWeekMonday = (dStr?: string) => {
+    const d = dStr ? new Date(dStr) : new Date();
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(d.setDate(diff));
+    return monday.toISOString().split('T')[0];
+  };
+
+  const [selectedWeek, setSelectedWeek] = useState<string>(getCurrentWeekMonday());
+  const [weeksList, setWeeksList] = useState<string[]>([]);
 
   // CSV/PDF parsing states
   const [draftRows, setDraftRows] = useState<DraftRow[]>([]);
@@ -154,6 +167,19 @@ export function PLTimetable() {
   const fetchTimetable = async (sectionIds: string[]) => {
     if (sectionIds.length === 0) return;
     try {
+      // Fetch distinct week start dates from timetable to populate the dropdown filter
+      const { data: distinctWeeks } = await supabase
+        .from('timetable')
+        .select('week_start_date');
+
+      const rawWeeks = (distinctWeeks || []).map(w => w.week_start_date).filter(Boolean);
+      const curWeek = getCurrentWeekMonday();
+      if (!rawWeeks.includes(curWeek)) {
+        rawWeeks.push(curWeek);
+      }
+      const sortedWeeks = Array.from(new Set(rawWeeks)).sort().reverse();
+      setWeeksList(sortedWeeks);
+
       const { data: slots, error } = await supabase
         .from('timetable')
         .select(`
@@ -167,7 +193,8 @@ export function PLTimetable() {
             faculty (name),
             group_label
           )
-        `);
+        `)
+        .eq('week_start_date', selectedWeek);
 
       if (error) throw error;
 
@@ -250,7 +277,8 @@ export function PLTimetable() {
         .delete()
         .eq('course_offering_id', offering.id)
         .eq('day_of_week', slot.day_of_week)
-        .eq('period_no', slot.period_number);
+        .eq('period_no', slot.period_number)
+        .eq('week_start_date', selectedWeek);
 
       if (error) throw error;
 
@@ -265,6 +293,12 @@ export function PLTimetable() {
   useEffect(() => {
     loadInitialData();
   }, [user]);
+
+  useEffect(() => {
+    if (sections.length > 0) {
+      fetchTimetable(sections.map(s => s.id));
+    }
+  }, [selectedWeek]);
 
   // Handle CSV Parsing
   const parseCSV = (text: string) => {
@@ -337,7 +371,7 @@ export function PLTimetable() {
         }
 
         const headers = Object.keys(rows[0]).map(h => h.trim().toLowerCase());
-        const requiredHeaders = ['section_name', 'course_code', 'group_label', 'day', 'period', 'term_name'];
+        const requiredHeaders = ['section_name', 'course_code', 'group_label', 'day', 'period', 'term_name', 'week_start_date'];
         const missing = requiredHeaders.filter(h => !headers.includes(h));
         if (missing.length > 0) {
           throw new Error(`Missing required headers: ${missing.join(', ')}`);
@@ -354,7 +388,8 @@ export function PLTimetable() {
             courseCode: getVal('course_code'),
             groupLabel: getVal('group_label'),
             dayOfWeek: getVal('day'),
-            periodNumber: parseInt(getVal('period')) || 1
+            periodNumber: parseInt(getVal('period')) || 1,
+            weekStartDate: getVal('week_start_date') || getCurrentWeekMonday()
           };
         });
 
@@ -452,7 +487,8 @@ export function PLTimetable() {
               sectionName: foundSection,
               courseCode: foundCourse,
               dayOfWeek: foundDay,
-              periodNumber: foundPeriod
+              periodNumber: foundPeriod,
+              weekStartDate: selectedWeek
             });
           }
         }
@@ -481,7 +517,8 @@ export function PLTimetable() {
         courseCode: defaultOffering?.courses?.code || '',
         groupLabel: defaultOffering?.group_label || '',
         dayOfWeek: 'Monday',
-        periodNumber: 1
+        periodNumber: 1,
+        weekStartDate: selectedWeek
       }
     ]);
   };
@@ -530,6 +567,7 @@ export function PLTimetable() {
         section_id: string | null;
         day_of_week: string;
         period_no: number;
+        week_start_date: string;
       }> = [];
 
       // Outer loop to resolve row-by-row
@@ -586,7 +624,8 @@ export function PLTimetable() {
           course_offering_id: offering.id,
           day_of_week: row.dayOfWeek,
           period_no: row.periodNumber,
-          section_id: secId
+          section_id: secId,
+          week_start_date: row.weekStartDate || selectedWeek
         });
       }
 
@@ -600,9 +639,9 @@ export function PLTimetable() {
       const seen = new Set<string>();
       for (let i = 0; i < resolvedSlots.length; i++) {
         const s = resolvedSlots[i];
-        const key = `${s.section_id || 'elective'}_${s.day_of_week}_${s.period_no}`;
+        const key = `${s.section_id || 'elective'}_${s.week_start_date}_${s.day_of_week}_${s.period_no}`;
         if (seen.has(key)) {
-          errors.push(`Row ${i + 1}: Multiple classes scheduled for ${s.section_id ? 'section' : 'elective group'} on ${s.day_of_week} at Period ${s.period_no}.`);
+          errors.push(`Row ${i + 1}: Multiple classes scheduled for ${s.section_id ? 'section' : 'elective group'} on week starting ${s.week_start_date}, ${s.day_of_week} at Period ${s.period_no}.`);
         }
         seen.add(key);
       }
@@ -613,26 +652,26 @@ export function PLTimetable() {
         return;
       }
 
-      // Write to DB: Delete existing timetable slots for the affected sections and write fresh
-      const affectedSectionIds = Array.from(new Set(resolvedSlots.map(s => s.section_id).filter(Boolean)));
+      // Scoped delete: delete existing slots for the affected weeks and PL's own assigned sections/saved electives
+      const affectedWeeks = Array.from(new Set(resolvedSlots.map(s => s.week_start_date)));
       const deleteOfferingIds = new Set<string>();
 
-      if (affectedSectionIds.length > 0) {
-        offerings
-          .filter(o => o.section_id && affectedSectionIds.includes(o.section_id))
-          .forEach(o => deleteOfferingIds.add(o.id));
-      }
+      const assignedSectionIds = sections.map(s => s.id);
+      offerings
+        .filter(o => o.section_id && assignedSectionIds.includes(o.section_id))
+        .forEach(o => deleteOfferingIds.add(o.id));
 
       resolvedSlots
         .filter(s => !s.section_id)
         .forEach(s => deleteOfferingIds.add(s.course_offering_id));
 
       const deleteOfferingIdsArray = Array.from(deleteOfferingIds);
-      if (deleteOfferingIdsArray.length > 0) {
+      if (deleteOfferingIdsArray.length > 0 && affectedWeeks.length > 0) {
         const { error: delError } = await supabase
           .from('timetable')
           .delete()
-          .in('course_offering_id', deleteOfferingIdsArray);
+          .in('course_offering_id', deleteOfferingIdsArray)
+          .in('week_start_date', affectedWeeks);
 
         if (delError) throw delError;
       }
@@ -641,7 +680,8 @@ export function PLTimetable() {
       const insertPayload = resolvedSlots.map(s => ({
         course_offering_id: s.course_offering_id,
         day_of_week: s.day_of_week,
-        period_no: s.period_no
+        period_no: s.period_no,
+        week_start_date: s.week_start_date
       }));
 
       const { error: insError } = await supabase.from('timetable').insert(insertPayload);
@@ -717,17 +757,32 @@ export function PLTimetable() {
             <h3 className="font-bold text-slate-800 text-sm">Timetabled Classes View</h3>
           </div>
           {sections.length > 0 && (
-            <div className="flex items-center gap-2.5">
-              <label className="text-xs font-bold text-slate-400 uppercase">Select Section:</label>
-              <select
-                value={selectedSectionGrid}
-                onChange={(e) => setSelectedSectionGrid(e.target.value)}
-                className="p-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 focus:outline-none"
-              >
-                {sections.map(s => (
-                  <option key={s.id} value={s.name}>{s.name}</option>
-                ))}
-              </select>
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2.5">
+                <label className="text-xs font-bold text-slate-400 uppercase">Select Week:</label>
+                <select
+                  value={selectedWeek}
+                  onChange={(e) => setSelectedWeek(e.target.value)}
+                  className="p-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 focus:outline-none"
+                >
+                  {weeksList.map(w => (
+                    <option key={w} value={w}>Week of {w}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <label className="text-xs font-bold text-slate-400 uppercase">Select Section:</label>
+                <select
+                  value={selectedSectionGrid}
+                  onChange={(e) => setSelectedSectionGrid(e.target.value)}
+                  className="p-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 focus:outline-none"
+                >
+                  {sections.map(s => (
+                    <option key={s.id} value={s.name}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
         </div>
@@ -879,8 +934,9 @@ export function PLTimetable() {
                   <thead className="bg-slate-50 text-[10px] font-bold text-slate-400 uppercase sticky top-0 border-b border-slate-100">
                     <tr>
                       <th className="px-3 py-2">Class Offering</th>
-                      <th className="px-3 py-2 w-[120px]">Day</th>
-                      <th className="px-3 py-2 w-[120px]">Period</th>
+                      <th className="px-3 py-2 w-[110px]">Week Monday</th>
+                      <th className="px-3 py-2 w-[90px]">Day</th>
+                      <th className="px-3 py-2 w-[90px]">Period</th>
                       <th className="px-3 py-2 text-center w-[85px]">Action</th>
                     </tr>
                   </thead>
@@ -905,6 +961,14 @@ export function PLTimetable() {
                               );
                             })}
                           </select>
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <input
+                            type="date"
+                            value={row.weekStartDate || selectedWeek}
+                            onChange={(e) => updateDraftCell(idx, 'weekStartDate', e.target.value)}
+                            className="w-full p-0.5 border border-slate-200 rounded bg-transparent focus:outline-none focus:ring-1 focus:ring-accent-500 font-semibold text-[11px]"
+                          />
                         </td>
                         <td className="px-2 py-1.5">
                           <select

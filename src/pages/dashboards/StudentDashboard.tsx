@@ -122,7 +122,16 @@ export function StudentDashboard() {
           percentage: total > 0 ? parseFloat(((present / total) * 100).toFixed(1)) : 0
         });
 
-        // 3. Fetch Timetable Schedule slots for this section
+        // 3. Fetch Timetable Schedule slots for this section and current week
+        const getCurrentWeekMonday = (dStr?: string) => {
+          const d = dStr ? new Date(dStr) : new Date();
+          const day = d.getDay();
+          const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+          const monday = new Date(d.setDate(diff));
+          return monday.toISOString().split('T')[0];
+        };
+        const weekMonday = getCurrentWeekMonday();
+
         const { data: timetableSlots } = await supabase
           .from('timetable')
           .select(`
@@ -134,7 +143,8 @@ export function StudentDashboard() {
               faculty (name)
             )
           `)
-          .eq('course_offerings.section_id', data.section_id);
+          .eq('course_offerings.section_id', data.section_id)
+          .eq('week_start_date', weekMonday);
 
         const mapped = (timetableSlots || []).map((s: any) => ({
           day_of_week: s.day_of_week,
