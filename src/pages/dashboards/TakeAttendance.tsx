@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '../../lib/supabase';
 import { useAuth } from '../../hooks/useAuth';
+import { useSearchParams } from 'react-router-dom';
 import {
   CheckSquare,
   Calendar,
@@ -34,6 +35,9 @@ interface StudentRosterItem {
 
 export function TakeAttendance() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
+  const autoOfferingId = searchParams.get('offering_id');
+  const autoPeriod = searchParams.get('period');
   
   // Date and view states
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
@@ -99,24 +103,30 @@ export function TakeAttendance() {
       };
       const weekMonday = getCurrentWeekMonday(selectedDate);
       
-      const { data: timetableSlots } = await supabase
+      console.log('Computed weekday string:', dayName);
+      console.log('week_start_date:', weekMonday);
+
+      const { data: timetableSlots, error: ttError } = await supabase
         .from('timetable')
         .select(`
           period_no,
           course_offering_id,
-          course_offerings (
+          course_offerings!inner (
             id,
             course_id,
             section_id,
-            sections (name),
-            courses (code, name),
+            group_label,
             faculty_id,
-            faculty (id, name),
-            group_label
+            sections (name),
+            courses!inner (code, name),
+            faculty!inner (id, name, profile_id)
           )
         `)
+        .eq('course_offerings.faculty.profile_id', user.id)
         .eq('day_of_week', dayName)
         .eq('week_start_date', weekMonday);
+
+      if (ttError) throw ttError;
 
       // Filter slots where this faculty teaches, OR check if they are substitute on this date
       const matchedSlots: ClassSlot[] = [];
@@ -139,27 +149,23 @@ export function TakeAttendance() {
 
         // Check if there is a session override for this slot
         const override = sessionMap.get(`${offering.id}_${s.period_no}`);
+        const secName = offering.section_id 
+          ? (offering.group_label ? `${offering.sections?.name || ''} (${offering.group_label})` : (offering.sections?.name || ''))
+          : (offering.group_label || 'Group Class');
         
-        const isMyTimetabled = offering.faculty_id === facRow.id;
-        const isMySubstitute = override && override.marked_by === user.id;
-
-        // If it's my timetabled class (and not substitute-assigned to someone else)
-        // OR it's substitute-assigned to me
-        if ((isMyTimetabled && (!override || !override.substitute_for_id || override.marked_by === user.id)) || isMySubstitute) {
-          matchedSlots.push({
-            offering_id: offering.id,
-            course_code: offering.courses?.code || '',
-            course_name: offering.courses?.name || '',
-            section_id: offering.section_id,
-            section_name: offering.section_id ? (offering.sections?.name || '') : (offering.group_label || 'Group Class'),
-            period_number: s.period_no,
-            timetabled_faculty_name: offering.faculty?.name || '',
-            timetabled_faculty_id: offering.faculty_id,
-            status: override ? override.status : 'pending',
-            session_id: override?.id,
-            isSubstitute: !!(override && override.substitute_for_id && override.marked_by === user.id)
-          });
-        }
+        matchedSlots.push({
+          offering_id: offering.id,
+          course_code: offering.courses?.code || '',
+          course_name: offering.courses?.name || '',
+          section_id: offering.section_id,
+          section_name: secName,
+          period_number: s.period_no,
+          timetabled_faculty_name: offering.faculty?.name || '',
+          timetabled_faculty_id: offering.faculty_id,
+          status: override ? override.status : 'pending',
+          session_id: override?.id,
+          isSubstitute: !!(override && override.substitute_for_id && override.marked_by === user.id)
+        });
       });
 
       // 5. Check if there are other substitute sessions assigned to me that are NOT in the regular timetable for today
@@ -171,12 +177,15 @@ export function TakeAttendance() {
             // Find course offering details
             const offeringDetails = offerings_cache.find(o => o.id === s.course_offering_id);
             if (offeringDetails) {
+              const secName = offeringDetails.section_id 
+                ? (offeringDetails.group_label ? `${offeringDetails.sections?.name || ''} (${offeringDetails.group_label})` : (offeringDetails.sections?.name || ''))
+                : (offeringDetails.group_label || 'Group Class');
               matchedSlots.push({
                 offering_id: s.course_offering_id,
                 course_code: offeringDetails.courses?.code || '',
                 course_name: offeringDetails.courses?.name || '',
                 section_id: offeringDetails.section_id,
-                section_name: offeringDetails.section_id ? (offeringDetails.sections?.name || '') : (offeringDetails.group_label || 'Group Class'),
+                section_name: secName,
                 period_number: s.period_number,
                 timetabled_faculty_name: offeringDetails.faculty?.name || '',
                 timetabled_faculty_id: offeringDetails.faculty_id,
@@ -190,6 +199,15 @@ export function TakeAttendance() {
       });
 
       setClasses(matchedSlots);
+
+      // Auto-select slot from query params if available
+      if (autoOfferingId && autoPeriod) {
+        const targetPeriod = parseInt(autoPeriod);
+        const match = matchedSlots.find(c => c.offering_id === autoOfferingId && c.period_number === targetPeriod);
+        if (match) {
+          handleMarkClass(match);
+        }
+      }
     } catch (err: any) {
       setErrorMsg(err.message || 'Error occurred while loading schedules.');
     } finally {
