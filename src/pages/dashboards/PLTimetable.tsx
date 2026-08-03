@@ -568,6 +568,7 @@ export function PLTimetable() {
         day_of_week: string;
         period_no: number;
         week_start_date: string;
+        group_label: string;
       }> = [];
 
       // Outer loop to resolve row-by-row
@@ -625,7 +626,8 @@ export function PLTimetable() {
           day_of_week: row.dayOfWeek,
           period_no: row.periodNumber,
           section_id: secId,
-          week_start_date: row.weekStartDate || selectedWeek
+          week_start_date: row.weekStartDate || selectedWeek,
+          group_label: offering.group_label || ''
         });
       }
 
@@ -639,9 +641,9 @@ export function PLTimetable() {
       const seen = new Set<string>();
       for (let i = 0; i < resolvedSlots.length; i++) {
         const s = resolvedSlots[i];
-        const key = `${s.section_id || 'elective'}_${s.week_start_date}_${s.day_of_week}_${s.period_no}`;
+        const key = `${s.section_id || 'elective'}_${s.week_start_date}_${s.day_of_week}_${s.period_no}_${s.group_label.trim().toLowerCase()}`;
         if (seen.has(key)) {
-          errors.push(`Row ${i + 1}: Multiple classes scheduled for ${s.section_id ? 'section' : 'elective group'} on week starting ${s.week_start_date}, ${s.day_of_week} at Period ${s.period_no}.`);
+          errors.push(`Row ${i + 1}: Duplicate class entry scheduled for ${s.section_id ? 'section' : 'elective group'} with group label '${s.group_label || '(None)'}' on week starting ${s.week_start_date}, ${s.day_of_week} at Period ${s.period_no}.`);
         }
         seen.add(key);
       }
